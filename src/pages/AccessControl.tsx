@@ -5,7 +5,15 @@ import { Label } from "@/components/ui/label";
 import { updateLocalAccountPassword } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrency } from "@/hooks/useCurrency";
-import { getCreditEnabled, setCreditEnabled, setReturnPassword } from "@/lib/localDb";
+import { useCashiers } from "@/hooks/useCashiers";
+import {
+  getCreditEnabled,
+  setCreditEnabled,
+  setReturnPassword,
+  addCashier,
+  updateCashier,
+  softDeleteCashier,
+} from "@/lib/localDb";
 import { useLanguage } from "@/hooks/useLanguage";
 
 type AccountKey = "cash" | "admin" | "sadmin";
@@ -20,11 +28,14 @@ export default function AccessControl() {
   const { toast } = useToast();
   const { currency, setCurrency } = useCurrency();
   const { tx, language, setLanguage, isArabic } = useLanguage();
+  const { cashiers } = useCashiers({ includeDeleted: true });
   const [selectedAccount, setSelectedAccount] = useState<AccountKey>("cash");
   const [newPassword, setNewPassword] = useState("");
   const [returnPassword, setReturnPasswordInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [creditEnabled, setCreditEnabledState] = useState<boolean>(getCreditEnabled());
+  const [cashierName, setCashierName] = useState("");
+  const [editingCashierId, setEditingCashierId] = useState<string | null>(null);
 
   const handleUpdatePassword = async () => {
     if (!newPassword.trim()) {
@@ -50,6 +61,43 @@ export default function AccessControl() {
     toast({ title: tx("Return password updated instantly", "تم تحديث كلمة سر الإرجاع فورًا") });
     setReturnPasswordInput("");
     setLoading(false);
+  };
+
+  const handleSaveCashier = () => {
+    const trimmed = cashierName.trim();
+    if (!trimmed) {
+      toast({ title: tx("Enter cashier name", "أدخل اسم الكاشير"), variant: "destructive" });
+      return;
+    }
+    if (editingCashierId) {
+      updateCashier(editingCashierId, trimmed);
+      toast({ title: tx("Cashier updated ✓", "تم تحديث الكاشير ✓") });
+    } else {
+      addCashier(trimmed);
+      toast({ title: tx("Cashier added ✓", "تمت إضافة الكاشير ✓") });
+    }
+    setCashierName("");
+    setEditingCashierId(null);
+  };
+
+  const handleEditCashier = (id: string, name: string) => {
+    setEditingCashierId(id);
+    setCashierName(name);
+  };
+
+  const handleDeleteCashier = (id: string) => {
+    softDeleteCashier(id);
+    toast({
+      title: tx("Cashier archived ✓", "تم أرشفة الكاشير ✓"),
+      description: tx(
+        "Existing sales will still show this cashier name.",
+        "المبيعات السابقة ستبقى باسم هذا الكاشير.",
+      ),
+    });
+    if (editingCashierId === id) {
+      setEditingCashierId(null);
+      setCashierName("");
+    }
   };
 
   return (
@@ -173,6 +221,82 @@ export default function AccessControl() {
         <Button className="w-full" onClick={handleUpdatePassword} disabled={loading}>
           {loading ? tx("Updating...", "جاري التحديث...") : tx("Save Password", "حفظ كلمة المرور")}
         </Button>
+      </div>
+
+      <div className="glass-card rounded-2xl p-5 space-y-4">
+        <div>
+          <h3 className="font-semibold text-lg">{tx("Cashiers", "الكاشيرية")}</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            {tx(
+              "Add and manage cashiers. Deleting a cashier will not remove their past sales.",
+              "أضف وادِر الكاشيرية. حذف الكاشير لا يحذف مبيعاته السابقة.",
+            )}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="cashier-name">{tx("Cashier Name", "اسم الكاشير")}</Label>
+          <Input
+            id="cashier-name"
+            value={cashierName}
+            onChange={(e) => setCashierName(e.target.value)}
+            placeholder={tx("Example: Ahmed", "مثال: أحمد")}
+          />
+        </div>
+        <Button className="w-full" type="button" onClick={handleSaveCashier}>
+          {editingCashierId
+            ? tx("Save Cashier", "حفظ الكاشير")
+            : tx("Add Cashier", "إضافة كاشير")}
+        </Button>
+
+        <div className="space-y-2">
+          <Label>{tx("Existing Cashiers", "الكاشيرية الحاليين")}</Label>
+          <div className="max-h-60 overflow-y-auto space-y-1 text-sm">
+            {cashiers.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {tx("No cashiers yet. Add one above.", "لا يوجد كاشير بعد. أضف واحداً من الأعلى.")}
+              </p>
+            )}
+            {cashiers.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-muted/40"
+              >
+                <div className="flex flex-col">
+                  <span className={c.deleted_at ? "line-through text-muted-foreground" : ""}>
+                    {c.name}
+                  </span>
+                  {c.deleted_at && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {tx("Archived", "مؤرشف")}
+                    </span>
+                  )}
+                </div>
+                {!c.deleted_at && (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      onClick={() => handleEditCashier(c.id, c.name)}
+                    >
+                      {tx("Edit", "تعديل")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      className="text-destructive border-destructive/40"
+                      onClick={() => handleDeleteCashier(c.id)}
+                    >
+                      {tx("Delete", "حذف")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="glass-card rounded-2xl p-5 space-y-4">

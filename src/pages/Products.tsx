@@ -16,7 +16,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { addProduct, clearTestProducts, deleteProduct as removeProduct, seedTestProducts, updateProduct } from "@/lib/localDb";
+import {
+  addProduct,
+  clearTestProducts,
+  deleteProduct as removeProduct,
+  seedTestProducts,
+  updateProduct,
+  addCategory,
+  renameCategory,
+  deleteCategory,
+} from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
@@ -32,15 +41,25 @@ interface ProductForm {
   min_stock: string;
   sell_retail: boolean;
   sell_wholesale: boolean;
+  category_id: string | "uncategorized";
 }
 
 const emptyForm: ProductForm = {
-  name: "", image_url: null, cost_price: "", retail_price: "", wholesale_price: "", wholesale_min_qty: "10", stock: "", min_stock: "10",
-  sell_retail: true, sell_wholesale: false,
+  name: "",
+  image_url: null,
+  cost_price: "",
+  retail_price: "",
+  wholesale_price: "",
+  wholesale_min_qty: "10",
+  stock: "",
+  min_stock: "10",
+  sell_retail: true,
+  sell_wholesale: false,
+  category_id: "uncategorized",
 };
 
 export default function Products() {
-  const { products } = useProducts();
+  const { products, categories } = useProducts();
   const { toast } = useToast();
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
@@ -53,8 +72,17 @@ export default function Products() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isClearingTests, setIsClearingTests] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("all");
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
 
-  const filtered = products.filter((p) => p.name.includes(search));
+  const filtered = products.filter((p) => {
+    if (!p.name.includes(search)) return false;
+    if (selectedCategoryId === "all") return true;
+    if (selectedCategoryId === "uncategorized") return !p.category_id;
+    return p.category_id === selectedCategoryId;
+  });
 
   const addTestProducts = () => {
     setIsSeeding(true);
@@ -98,6 +126,7 @@ export default function Products() {
       min_stock: String(p.min_stock),
       sell_retail: p.sell_retail,
       sell_wholesale: p.sell_wholesale,
+      category_id: p.category_id ?? "uncategorized",
     });
     setEditingId(p.id);
     setDialogOpen(true);
@@ -118,6 +147,7 @@ export default function Products() {
         min_stock: parseInt(form.min_stock) || 10,
         sell_retail: form.sell_retail,
         sell_wholesale: form.sell_wholesale,
+        category_id: form.category_id === "uncategorized" ? null : form.category_id,
       };
 
       if (editingId) {
@@ -151,6 +181,46 @@ export default function Products() {
     toast({ title: tx("Product moved to trash ✓", "تم نقل المنتج إلى سلة المحذوفات ✓") });
   };
 
+  const openNewCategory = () => {
+    setEditingCategoryId(null);
+    setNewCategoryName("");
+    setCategoryDialogOpen(true);
+  };
+
+  const openEditCategory = (id: string, name: string) => {
+    setEditingCategoryId(id);
+    setNewCategoryName(name);
+    setCategoryDialogOpen(true);
+  };
+
+  const saveCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (editingCategoryId) {
+      renameCategory(editingCategoryId, trimmed);
+      toast({ title: tx("Category updated ✓", "تم تحديث الصنف ✓") });
+    } else {
+      addCategory(trimmed);
+      toast({ title: tx("Category added ✓", "تمت إضافة الصنف ✓") });
+    }
+    setCategoryDialogOpen(false);
+  };
+
+  const removeCategoryClick = (id: string) => {
+    const found = categories.find((c) => c.id === id);
+    // Simple confirm; products will become uncategorized
+    const confirmed = window.confirm(
+      tx(
+        `Delete category "${found?.name ?? ""}"? Products will stay but without this category.`,
+        `حذف الصنف "${found?.name ?? ""}"؟ المنتجات ستبقى لكن بدون هذا الصنف.`,
+      ),
+    );
+    if (!confirmed) return;
+    deleteCategory(id);
+    toast({ title: tx("Category deleted ✓", "تم حذف الصنف ✓") });
+    if (selectedCategoryId === id) setSelectedCategoryId("all");
+  };
+
   return (
     <div className="space-y-4" dir={isArabic ? "rtl" : "ltr"}>
       <div className="flex items-center gap-3 flex-wrap">
@@ -182,6 +252,29 @@ export default function Products() {
             {tx("Cards", "كروت")}
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <select
+            value={selectedCategoryId}
+            onChange={(e) => setSelectedCategoryId(e.target.value)}
+            className="h-10 rounded-xl border border-input bg-background px-3 text-sm flex-1 min-w-[160px]"
+          >
+            <option value="all">{tx("All Categories", "كل الأصناف")}</option>
+            <option value="uncategorized">{tx("Without Category", "بدون صنف")}</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl text-xs sm:text-sm"
+            onClick={openNewCategory}
+          >
+            {tx("Manage Categories", "إدارة الأصناف")}
+          </Button>
+        </div>
         <div className="flex gap-2 w-full sm:w-auto">
           <Button type="button" variant="outline" onClick={addTestProducts} disabled={isSeeding} className="rounded-xl flex-1">
             {isSeeding ? tx("Adding...", "جاري الإضافة...") : tx("Add 100 Test Products", "إضافة 100 منتج تجريبي")}
@@ -205,6 +298,7 @@ export default function Products() {
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-right p-3 font-semibold">{tx("Product", "المنتج")}</th>
+                  <th className="text-right p-3 font-semibold">{tx("Category", "الصنف")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Retail Price", "سعر المفرق")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Cost Price", "سعر الشراء")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Wholesale Price", "سعر الجملة")}</th>
@@ -220,6 +314,11 @@ export default function Products() {
                 {filtered.map((p) => (
                   <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                     <td className="p-3 font-medium">{p.name}</td>
+                    <td className="p-3 text-xs">
+                      {p.category_id
+                        ? categories.find((c) => c.id === p.category_id)?.name ?? tx("Unknown", "غير معروف")
+                        : tx("Without Category", "بدون صنف")}
+                    </td>
                     <td className="p-3">{formatMoney(p.retail_price)}</td>
                     <td className="p-3">{formatMoney(p.cost_price)}</td>
                     <td className="p-3">{formatMoney(p.wholesale_price)}</td>
@@ -254,7 +353,7 @@ export default function Products() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
           {filtered.map((p) => (
-            <div key={p.id} className="glass-card rounded-2xl p-3 flex flex-col gap-2">
+              <div key={p.id} className="glass-card rounded-2xl p-3 flex flex-col gap-2">
               {p.image_url ? (
                 <img src={p.image_url} alt={p.name} className="w-full h-28 rounded-xl object-cover border border-border/50" />
               ) : (
@@ -263,6 +362,14 @@ export default function Products() {
                 </div>
               )}
               <p className="font-bold text-sm line-clamp-2 min-h-[40px]">{p.name}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {tx("Category", "الصنف")}:{" "}
+                <span className="font-medium">
+                  {p.category_id
+                    ? categories.find((c) => c.id === p.category_id)?.name ?? tx("Unknown", "غير معروف")
+                    : tx("Without Category", "بدون صنف")}
+                </span>
+              </p>
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>{tx("Retail Price", "سعر المفرق")}: <span className="font-semibold text-foreground">{formatMoney(p.retail_price)}</span></p>
                 <p>{tx("Cost Price", "سعر الشراء")}: <span className="font-semibold text-foreground">{formatMoney(p.cost_price)}</span></p>
@@ -297,6 +404,24 @@ export default function Products() {
             <div>
               <label className="text-sm font-medium mb-1 block">{tx("Product Name", "اسم المنتج")}</label>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-xl" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">{tx("Category", "الصنف")}</label>
+              <select
+                value={form.category_id}
+                onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+                className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm"
+              >
+                <option value="uncategorized">{tx("Without Category", "بدون صنف")}</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {tx("You can manage categories from the products page header.", "يمكنك إدارة الأصناف من أعلى صفحة المنتجات.")}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium mb-1 block">{tx("Product Image (Optional)", "صورة المنتج (اختياري)")}</label>
@@ -436,6 +561,67 @@ export default function Products() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+        <DialogContent className="max-w-md" dir={isArabic ? "rtl" : "ltr"}>
+          <DialogHeader>
+            <DialogTitle>
+              {editingCategoryId
+                ? tx("Edit Category", "تعديل الصنف")
+                : tx("Add Category", "إضافة صنف")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                {tx("Category Name", "اسم الصنف")}
+              </label>
+              <Input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+            {categories.length > 0 && (
+              <div className="max-h-40 overflow-y-auto border rounded-xl p-2 space-y-1 text-sm">
+                {categories.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-muted/60"
+                  >
+                    <span>{c.name}</span>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditCategory(c.id, c.name)}
+                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-primary/10 text-primary text-xs"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeCategoryClick(c.id)}
+                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-destructive/10 text-destructive text-xs"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={saveCategory}
+              disabled={!newCategoryName.trim()}
+              className="w-full rounded-xl"
+            >
+              {tx("Save Category", "حفظ الصنف")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 export type SaleType = "retail" | "wholesale";
 export type CurrencyCode = "JOD" | "USD";
 export type LanguageCode = "en" | "ar";
+export type PaymentMethod = "cash" | "visa";
 
 export interface LocalProduct {
   id: string;
@@ -14,14 +15,29 @@ export interface LocalProduct {
   min_stock: number;
   sell_retail: boolean;
   sell_wholesale: boolean;
+  category_id: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export interface LocalCashier {
+  id: string;
+  name: string;
+  created_at: string;
+  deleted_at: string | null;
+}
+
+export interface LocalCategory {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface LocalInvoice {
   id: string;
   cashier_id: string;
+  cashier_name: string;
   sale_type: SaleType;
   total: number;
   returned_amount: number;
@@ -30,6 +46,7 @@ export interface LocalInvoice {
   change_amount: number;
   is_credit: boolean;
   customer_name: string | null;
+  payment_method: PaymentMethod;
   is_return: boolean;
   deleted_at: string | null;
   return_approved_by: string | null;
@@ -51,6 +68,8 @@ export interface LocalInvoiceItem {
 
 type LocalState = {
   products: LocalProduct[];
+  cashiers: LocalCashier[];
+  categories: LocalCategory[];
   invoices: LocalInvoice[];
   invoice_items: LocalInvoiceItem[];
   settings: {
@@ -59,6 +78,7 @@ type LocalState = {
     wholesale_min_qty: number;
     language: LanguageCode;
     enable_credit: boolean;
+    // Future: payment methods config if needed
   };
 };
 
@@ -67,6 +87,8 @@ const DB_EVENT = "supermart:db-changed";
 
 const defaultState: LocalState = {
   products: [],
+  cashiers: [],
+  categories: [],
   invoices: [],
   invoice_items: [],
   settings: {
@@ -101,12 +123,26 @@ function readState(): LocalState {
           ((product as Partial<LocalProduct>).wholesale_min_qty ?? parsed.settings?.wholesale_min_qty ?? 10),
         ),
         deleted_at: (product as LocalProduct).deleted_at ?? null,
+        category_id: (product as LocalProduct).category_id ?? null,
       })),
+      cashiers: (parsed as any).cashiers
+        ? (parsed as any).cashiers.map((c: any) => ({
+            id: String(c.id),
+            name: String(c.name ?? "").trim() || "Cashier",
+            created_at: c.created_at ?? new Date().toISOString(),
+            deleted_at: c.deleted_at ?? null,
+          }))
+        : [],
+      categories: (parsed as any).categories ?? [],
       invoices: (parsed.invoices ?? []).map((invoice) => ({
         ...invoice,
         returned_amount: (invoice as LocalInvoice).returned_amount ?? 0,
         last_returned_at: (invoice as LocalInvoice).last_returned_at ?? null,
         deleted_at: (invoice as LocalInvoice).deleted_at ?? null,
+        cashier_name: (invoice as LocalInvoice).cashier_name
+          ?? (invoice as any).cashier_name
+          ?? String((invoice as any).cashier_id ?? "Cashier"),
+        payment_method: (invoice as LocalInvoice).payment_method ?? "cash",
       })),
       invoice_items: (parsed.invoice_items ?? []).map((item) => ({
         ...item,
@@ -157,6 +193,81 @@ export function getProducts() {
     .products
     .filter((p) => !p.deleted_at)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getCashiers(options?: { includeDeleted?: boolean }) {
+  const state = readState();
+  const list = options?.includeDeleted ? state.cashiers : state.cashiers.filter((c) => !c.deleted_at);
+  return list.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function addCashier(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const state = readState();
+  const now = new Date().toISOString();
+  state.cashiers.push({
+    id: newId(),
+    name: trimmed,
+    created_at: now,
+    deleted_at: null,
+  });
+  writeState(state);
+}
+
+export function updateCashier(id: string, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const state = readState();
+  state.cashiers = state.cashiers.map((c) =>
+    c.id === id ? { ...c, name: trimmed } : c,
+  );
+  writeState(state);
+}
+
+export function softDeleteCashier(id: string) {
+  const state = readState();
+  const now = new Date().toISOString();
+  state.cashiers = state.cashiers.map((c) =>
+    c.id === id ? { ...c, deleted_at: now } : c,
+  );
+  writeState(state);
+}
+
+export function getCategories() {
+  return readState()
+    .categories
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function addCategory(name: string) {
+  const state = readState();
+  const now = new Date().toISOString();
+  state.categories.push({
+    id: newId(),
+    name: name.trim(),
+    created_at: now,
+  });
+  writeState(state);
+}
+
+export function renameCategory(id: string, name: string) {
+  const state = readState();
+  state.categories = state.categories.map((c) =>
+    c.id === id ? { ...c, name: name.trim() } : c,
+  );
+  writeState(state);
+}
+
+export function deleteCategory(id: string) {
+  const state = readState();
+  // Remove category reference from products
+  state.products = state.products.map((p) =>
+    p.category_id === id ? { ...p, category_id: null } : p,
+  );
+  state.categories = state.categories.filter((c) => c.id !== id);
+  writeState(state);
 }
 
 export function getTrashedProducts() {
@@ -251,8 +362,9 @@ export function createInvoice(params: {
   total: number;
   paid: number;
   change_amount: number;
-    is_credit: boolean;
-    customer_name?: string | null;
+  is_credit: boolean;
+  customer_name?: string | null;
+  payment_method: PaymentMethod;
   items: Array<{
     product_id: string;
     product_name: string;
@@ -277,6 +389,7 @@ export function createInvoice(params: {
     change_amount: params.change_amount,
     is_credit: params.is_credit,
     customer_name: params.customer_name ?? null,
+    payment_method: params.payment_method,
     is_return: false,
     deleted_at: null,
     return_approved_by: null,

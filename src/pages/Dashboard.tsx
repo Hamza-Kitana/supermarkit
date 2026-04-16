@@ -6,6 +6,7 @@ import { getInvoiceItems, subscribeDbChanges } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   DollarSign, TrendingUp, Package, AlertTriangle, ShoppingCart,
 } from "lucide-react";
@@ -110,6 +111,18 @@ export default function Dashboard() {
     const net = Math.max(0, invoice.total - returned);
     return sum + net;
   }, 0);
+
+  const paymentTotals = filteredInvoices.reduce(
+    (acc, invoice) => {
+      if (invoice.is_credit) return acc;
+      const returned = invoice.returned_amount ?? 0;
+      const net = Math.max(0, invoice.total - returned);
+      if (invoice.payment_method === "visa") acc.visa += net;
+      else acc.cash += net;
+      return acc;
+    },
+    { cash: 0, visa: 0 },
+  );
   const totalOutstandingCredit = filteredInvoices.reduce((sum, invoice) => {
     if (!invoice.is_credit) return sum;
     const returned = invoice.returned_amount ?? 0;
@@ -155,6 +168,118 @@ export default function Dashboard() {
     new Set(invoices.map((inv) => new Date(inv.created_at).getFullYear()).concat(new Date().getFullYear())),
   ).sort((a, b) => b - a);
 
+  const handlePrint = () => {
+    const periodLabel =
+      period === "day"
+        ? tx("Day", "اليوم")
+        : period === "week"
+          ? tx("Week", "الأسبوع")
+          : period === "month"
+            ? tx("Month", "الشهر")
+            : tx("Year", "السنة");
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const rowsHtml = filteredInvoices
+      .map((inv) => {
+        const returned = inv.returned_amount ?? 0;
+        const net = Math.max(0, inv.total - returned);
+        const dateStr = new Date(inv.created_at).toLocaleString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const saleTypeLabel =
+          inv.sale_type === "retail" ? tx("Retail", "مفرق") : tx("Wholesale", "جملة");
+        const paymentLabel = inv.is_credit
+          ? tx("Credit", "دين")
+          : inv.payment_method === "visa"
+            ? tx("Visa", "فيزا")
+            : tx("Cash", "كاش");
+        const statusLabel =
+          (inv.returned_amount ?? 0) > 0 && !inv.is_return
+            ? tx("Partially Returned", "مرتجع جزئي")
+            : inv.is_return
+              ? tx("Returned", "مُرجع")
+              : tx("Completed", "مكتمل");
+
+        return `<tr>
+          <td>${dateStr}</td>
+          <td>${saleTypeLabel}${inv.is_credit && inv.customer_name ? " · " + tx("Credit", "دين") + " - " + inv.customer_name : ""}</td>
+          <td>${paymentLabel}</td>
+          <td>${formatMoney(inv.total)}</td>
+          <td>${formatMoney(returned)}</td>
+          <td>${formatMoney(net)}</td>
+          <td>${formatMoney(inv.paid)}</td>
+          <td>${formatMoney(inv.change_amount)}</td>
+          <td>${statusLabel}</td>
+        </tr>`;
+      })
+      .join("");
+
+    const docHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charSet="utf-8" />
+  <title>${tx("Sales Report", "تقرير المبيعات")} - ${periodLabel}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; color: #111827; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    h2 { font-size: 16px; margin-top: 16px; margin-bottom: 4px; }
+    p { margin: 2px 0; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: right; }
+    th { background: #f3f4f6; }
+    tfoot td { font-weight: 600; background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <h1>${tx("Supermarket - Sales Report", "Supermarket - تقرير المبيعات")}</h1>
+  <p>${tx("Period", "الفترة")}: ${periodLabel}</p>
+  <p>${tx("Printed at", "تاريخ الطباعة")}: ${new Date().toLocaleString("en-US")}</p>
+
+  <h2>${tx("Summary", "الملخص")}</h2>
+  <p>${tx("Total Sales", "إجمالي المبيعات")}: ${formatMoney(totalSales)}</p>
+  <p>${tx("Outstanding Credit", "إجمالي الدين الحالي")}: ${formatMoney(totalOutstandingCredit)}</p>
+  <p>${tx("Total Profit", "إجمالي الربح")}: ${formatMoney(totalProfit)}</p>
+  <p>${tx("Invoices Count", "عدد الفواتير")}: ${totalInvoices}</p>
+  <p>${tx("Cash", "كاش")}: ${formatMoney(paymentTotals.cash)}</p>
+  <p>${tx("Visa", "فيزا")}: ${formatMoney(paymentTotals.visa)}</p>
+
+  <h2>${tx("Invoices", "الفواتير")}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>${tx("Date", "التاريخ")}</th>
+        <th>${tx("Type", "النوع")}</th>
+        <th>${tx("Payment", "الدفع")}</th>
+        <th>${tx("Total", "الإجمالي")}</th>
+        <th>${tx("Returned", "المرتجع")}</th>
+        <th>${tx("Net", "الصافي")}</th>
+        <th>${tx("Paid", "المدفوع")}</th>
+        <th>${tx("Change", "الباقي")}</th>
+        <th>${tx("Status", "الحالة")}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml || `<tr><td colspan="9">${tx("No invoices in this period", "لا توجد فواتير في هذه الفترة")}</td></tr>`}
+    </tbody>
+  </table>
+</body>
+</html>
+`;
+
+    printWindow.document.open();
+    printWindow.document.write(docHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
   return (
     <div className="space-y-6" dir={isArabic ? "rtl" : "ltr"}>
       {/* Period selector */}
@@ -171,33 +296,43 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
-      <div className="glass-card rounded-xl p-3 w-full sm:w-fit">
-        {period === "day" && (
-          <Input type="date" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)} dir="ltr" />
-        )}
-        {period === "week" && (
-          <Input type="week" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} dir="ltr" />
-        )}
-        {period === "month" && (
-          <Input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} dir="ltr" />
-        )}
-        {period === "year" && (
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            {availableYears.map((y) => (
-              <option key={y} value={String(y)}>
-                {y}
-              </option>
-            ))}
-          </select>
-        )}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="glass-card rounded-xl p-3 w-full sm:w-fit">
+          {period === "day" && (
+            <Input type="date" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)} dir="ltr" />
+          )}
+          {period === "week" && (
+            <Input type="week" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} dir="ltr" />
+          )}
+          {period === "month" && (
+            <Input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} dir="ltr" />
+          )}
+          {period === "year" && (
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {availableYears.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-xl"
+          onClick={handlePrint}
+        >
+          {tx("Print report", "طباعة التقرير")}
+        </Button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -206,6 +341,30 @@ export default function Dashboard() {
             <span className="text-sm text-muted-foreground">{tx("Total Sales", "إجمالي المبيعات")}</span>
           </div>
           <p className="text-2xl font-bold text-foreground">{formatMoney(totalSales)}</p>
+        </div>
+        <div className="stat-card col-span-2 lg:col-span-2">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <DollarSign className="w-5 h-5 text-primary" />
+            </div>
+            <span className="text-sm text-muted-foreground">
+              {tx("By Payment Method (completed sales)", "حسب طريقة الدفع (مبيعات مكتملة)")}
+            </span>
+          </div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="font-medium">{tx("Cash", "كاش")}</span>
+              <span className="font-semibold text-foreground">
+                {formatMoney(paymentTotals.cash)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-medium">{tx("Visa", "فيزا")}</span>
+              <span className="font-semibold text-foreground">
+                {formatMoney(paymentTotals.visa)}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">

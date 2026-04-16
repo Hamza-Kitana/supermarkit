@@ -9,6 +9,7 @@ import POS from "@/pages/POS";
 import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import Invoices from "@/pages/Invoices";
+import CreditPage from "@/pages/Credit";
 import AccessControl from "@/pages/AccessControl";
 import Trash from "@/pages/Trash";
 import AppLayout from "@/components/AppLayout";
@@ -40,6 +41,7 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/dashboard" element={<Dashboard />} />}
         {isAdmin && <Route path="/products" element={<Products />} />}
         <Route path="/invoices" element={<Invoices />} />
+        {isAdmin && <Route path="/credit" element={<CreditPage />} />}
         {role === "super_admin" && <Route path="/access-control" element={<AccessControl />} />}
         {role === "super_admin" && <Route path="/trash" element={<Trash />} />}
         <Route path="*" element={<Navigate to={defaultPath} replace />} />

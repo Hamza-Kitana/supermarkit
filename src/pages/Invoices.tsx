@@ -81,6 +81,8 @@ export default function Invoices() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-right p-3 font-semibold">{tx("Date", "التاريخ")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Type", "النوع")}</th>
+                <th className="text-right p-3 font-semibold">{tx("Cashier", "الكاشير")}</th>
+                <th className="text-right p-3 font-semibold">{tx("Payment", "الدفع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Total", "المجموع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Paid", "المدفوع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Change", "الباقي")}</th>
@@ -105,6 +107,22 @@ export default function Invoices() {
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td className="p-3 text-xs">
+                      {inv.cashier_name}
+                    </td>
+                    <td className="p-3">
+                      {!inv.is_credit ? (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-muted/60">
+                          {inv.payment_method === "visa"
+                            ? tx("Visa", "فيزا")
+                            : tx("Cash", "كاش")}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {tx("Credit", "دين")}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 font-bold">{formatMoney(getInvoiceReturnSummary(inv.id).netAmount)}</td>
                     <td className="p-3">{formatMoney(inv.paid)}</td>
@@ -173,6 +191,20 @@ export default function Invoices() {
                   <p className="font-bold">
                     {selectedInvoice.sale_type === "retail" ? tx("Retail", "مفرق") : tx("Wholesale", "جملة")}
                     {selectedInvoice.is_credit && ` · ${tx("Credit", "دين")}`}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-2">
+                  <p className="text-muted-foreground">{tx("Cashier", "الكاشير")}</p>
+                  <p className="font-bold">{selectedInvoice.cashier_name}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-2">
+                  <p className="text-muted-foreground">{tx("Payment Method", "طريقة الدفع")}</p>
+                  <p className="font-bold">
+                    {selectedInvoice.is_credit
+                      ? tx("Credit", "دين")
+                      : selectedInvoice.payment_method === "visa"
+                        ? tx("Visa", "فيزا")
+                        : tx("Cash", "كاش")}
                   </p>
                 </div>
                 <div className="rounded-lg bg-muted/40 p-2">

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/hooks/useProducts";
+import { useCashiers } from "@/hooks/useCashiers";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,7 @@ interface CartItem {
 export default function POS() {
   const { user } = useAuth();
   const { products } = useProducts();
+  const { cashiers } = useCashiers();
   const { toast } = useToast();
   const { formatMoney, currency } = useCurrency();
   const { tx, isArabic } = useLanguage();
@@ -42,6 +44,8 @@ export default function POS() {
   const [pendingSaleType, setPendingSaleType] = useState<"retail" | "wholesale" | null>(null);
   const [isCredit, setIsCredit] = useState(false);
   const [customerName, setCustomerName] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "visa">("cash");
+  const [selectedCashierId, setSelectedCashierId] = useState<string>("");
 
   const filteredProducts = useMemo(() => {
     if (!search) return products;
@@ -153,6 +157,15 @@ export default function POS() {
 
   const checkout = async () => {
     if (!user || cart.length === 0) return;
+    if (!selectedCashierId) {
+      toast({
+        title: tx("Select cashier", "اختر الكاشير"),
+        description: tx("Please select which cashier is currently working before completing the sale.", "الرجاء اختيار الكاشير الحالي قبل إتمام عملية البيع."),
+        variant: "destructive",
+      });
+      return;
+    }
+    const activeCashier = cashiers.find((c) => c.id === selectedCashierId);
     if (!isCredit && saleType === "wholesale") {
       const invalidItems = cart.filter((item) => item.quantity < item.product.wholesale_min_qty);
       if (invalidItems.length > 0) {
@@ -194,13 +207,15 @@ export default function POS() {
       }));
 
       createInvoice({
-        cashier_id: user.id,
+        cashier_id: selectedCashierId,
+        cashier_name: activeCashier?.name ?? "Cashier",
         sale_type: saleType,
         total,
         paid: isCredit ? 0 : paid,
         change_amount: isCredit ? 0 : change,
         is_credit: isCredit,
         customer_name: isCredit ? customerName.trim() : null,
+        payment_method: isCredit ? "cash" : paymentMethod,
         items,
       });
 
@@ -223,6 +238,7 @@ export default function POS() {
       setPaidAmount("");
       setCustomerName("");
       setIsCredit(false);
+      setPaymentMethod("cash");
     } catch (err: any) {
       toast({ title: tx("Error", "خطأ"), description: err.message, variant: "destructive" });
     } finally {
@@ -267,22 +283,68 @@ export default function POS() {
               className="pr-10 rounded-xl"
             />
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button
-              variant={isCredit ? "default" : "outline"}
-              className="rounded-xl gap-2 flex-1"
-              onClick={() => setIsCredit((prev) => !prev)}
+          <div className="w-full sm:w-56">
+            <select
+              value={selectedCashierId}
+              onChange={(e) => setSelectedCashierId(e.target.value)}
+              className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm"
             >
-              {tx("Credit", "دين")}
-            </Button>
-            {isCredit && (
-              <Input
-                placeholder={tx("Customer name", "اسم الزبون")}
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="rounded-xl flex-1"
-              />
-            )}
+              <option value="">
+                {tx("Select cashier", "اختر الكاشير")}
+              </option>
+              {cashiers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <div className="flex bg-muted rounded-xl p-1 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("cash")}
+                className={cn(
+                  "flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all",
+                  !isCredit && paymentMethod === "cash"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                disabled={isCredit}
+              >
+                {tx("Cash", "كاش")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("visa")}
+                className={cn(
+                  "flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all",
+                  !isCredit && paymentMethod === "visa"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                disabled={isCredit}
+              >
+                {tx("Visa", "فيزا")}
+              </button>
+            </div>
+            <div className="flex flex-1 gap-2">
+              <Button
+                variant={isCredit ? "default" : "outline"}
+                className="rounded-xl gap-2 flex-1"
+                onClick={() => setIsCredit((prev) => !prev)}
+              >
+                {tx("Credit", "دين")}
+              </Button>
+              {isCredit && (
+                <Input
+                  placeholder={tx("Customer name", "اسم الزبون")}
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="rounded-xl flex-1"
+                />
+              )}
+            </div>
           </div>
           <Button variant="outline" className="rounded-xl gap-2 w-full sm:w-auto" onClick={() => setReturnOpen(true)}>
             <RotateCcw className="w-4 h-4" />
