@@ -14,11 +14,13 @@ import AccessControl from "@/pages/AccessControl";
 import Trash from "@/pages/Trash";
 import AppLayout from "@/components/AppLayout";
 import NotFound from "@/pages/NotFound";
+import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 
 const queryClient = new QueryClient();
 
 function ProtectedRoutes() {
   const { user, role, loading } = useAuth();
+  const creditEnabled = useCreditEnabled();
 
   if (loading) {
     return (
@@ -41,7 +43,7 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/dashboard" element={<Dashboard />} />}
         {isAdmin && <Route path="/products" element={<Products />} />}
         <Route path="/invoices" element={<Invoices />} />
-        {isAdmin && <Route path="/credit" element={<CreditPage />} />}
+        {creditEnabled && <Route path="/credit" element={<CreditPage />} />}
         {role === "super_admin" && <Route path="/access-control" element={<AccessControl />} />}
         {role === "super_admin" && <Route path="/trash" element={<Trash />} />}
         <Route path="*" element={<Navigate to={defaultPath} replace />} />

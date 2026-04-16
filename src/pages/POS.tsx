@@ -18,6 +18,7 @@ import ReturnDialog from "@/components/ReturnDialog";
 import { addCustomer, createInvoice, getCustomers, subscribeDbChanges, type LocalCustomer } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 import { ShoppingBasket, Trash2, Plus, Minus, RotateCcw, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,7 @@ export default function POS() {
   const { toast } = useToast();
   const { formatMoney, currency } = useCurrency();
   const { tx, isArabic } = useLanguage();
+  const creditEnabled = useCreditEnabled();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saleType, setSaleType] = useState<"retail" | "wholesale">("retail");
   const [paidAmount, setPaidAmount] = useState("");
@@ -55,6 +57,15 @@ export default function POS() {
     return subscribeDbChanges(refresh);
   }, []);
 
+  useEffect(() => {
+    if (!creditEnabled && isCredit) {
+      setIsCredit(false);
+      setSelectedCustomerId("");
+      setCustomerName("");
+      setShowAddCustomer(false);
+    }
+  }, [creditEnabled, isCredit]);
+
   const filteredProducts = useMemo(() => {
     if (!search) return products;
     return products.filter((p) => p.name.includes(search));
@@ -69,7 +80,8 @@ export default function POS() {
   );
 
   const paid = parseFloat(paidAmount) || 0;
-  const change = Math.max(0, paid - total);
+  const effectivePaid = !isCredit && paymentMethod !== "cash" ? total : paid;
+  const change = Math.max(0, effectivePaid - total);
 
   const addToCart = (product: Product) => {
     const productWholesaleMin = Math.max(1, product.wholesale_min_qty || 1);
@@ -190,11 +202,17 @@ export default function POS() {
       }
     }
     if (!isCredit) {
-      if (paid < total) {
+      if (paymentMethod !== "cash") {
+        // For card/wallet payments, no need to type paid amount.
+      } else if (paid < total) {
         toast({ title: tx("Insufficient paid amount", "المبلغ المدفوع غير كافٍ"), variant: "destructive" });
         return;
       }
     } else {
+      if (!creditEnabled) {
+        toast({ title: tx("Credit sales are disabled", "البيع بالدين متوقف حالياً"), variant: "destructive" });
+        return;
+      }
       if (!selectedCustomerId && !customerName.trim()) {
         toast({ title: tx("Customer name is required for credit sale", "اسم الزبون مطلوب للبيع بالدين"), variant: "destructive" });
         return;
@@ -225,7 +243,7 @@ export default function POS() {
         cashier_name: activeCashierName,
         sale_type: saleType,
         total,
-        paid: isCredit ? 0 : paid,
+        paid: isCredit ? 0 : effectivePaid,
         change_amount: isCredit ? 0 : change,
         is_credit: isCredit,
         customer_name: finalCustomerName,
@@ -430,16 +448,17 @@ export default function POS() {
             <span>{tx("Total", "المجموع")}</span>
             <span className="text-primary">{formatMoney(total)}</span>
           </div>
-          <div className="space-y-2">
-            <Button
-              type="button"
-              variant={isCredit ? "default" : "outline"}
-              className="rounded-xl gap-2 w-full"
-              onClick={() => setIsCredit((prev) => !prev)}
-            >
-              {isCredit ? tx("Credit Sale Active", "البيع بالدين مفعّل") : tx("Mark as Credit Sale", "تسجيلها كبيع دين")}
-            </Button>
-            {isCredit && (
+          {creditEnabled && (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant={isCredit ? "default" : "outline"}
+                className="rounded-xl gap-2 w-full"
+                onClick={() => setIsCredit((prev) => !prev)}
+              >
+                {isCredit ? tx("Credit Sale Active", "البيع بالدين مفعّل") : tx("Mark as Credit Sale", "تسجيلها كبيع دين")}
+              </Button>
+              {isCredit && (
               <div className="space-y-2">
                 <select
                   value={selectedCustomerId}
@@ -504,8 +523,9 @@ export default function POS() {
                   </div>
                 )}
               </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
               {tx("Payment Method (before complete sale)", "طريقة الدفع (قبل إتمام البيع)")}
@@ -552,15 +572,22 @@ export default function POS() {
               </button>
             </div>
           </div>
-          <Input
-            type="number"
-            placeholder={tx(`Paid amount (${currency})`, `المبلغ المدفوع (${currency})`)}
-            value={paidAmount}
-            onChange={(e) => setPaidAmount(e.target.value)}
-            className="h-12 rounded-xl text-lg text-center font-bold"
-            dir="ltr"
-          />
-          {paid > 0 && paid >= total && (
+          {paymentMethod === "cash" && !isCredit && (
+            <Input
+              type="number"
+              placeholder={tx(`Paid amount (${currency})`, `المبلغ المدفوع (${currency})`)}
+              value={paidAmount}
+              onChange={(e) => setPaidAmount(e.target.value)}
+              className="h-12 rounded-xl text-lg text-center font-bold"
+              dir="ltr"
+            />
+          )}
+          {paymentMethod !== "cash" && !isCredit && (
+            <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              {tx("For Visa/Wallet, payment is counted as fully paid automatically.", "عند فيزا/محفظة يتم احتساب المبلغ مدفوع بالكامل تلقائياً.")}
+            </div>
+          )}
+          {paymentMethod === "cash" && paid > 0 && paid >= total && (
             <div className="flex justify-between items-center bg-success/10 rounded-xl p-3">
               <span className="font-semibold">{tx("Change", "الباقي")}</span>
               <span className="text-xl font-bold text-success">{formatMoney(change)}</span>
@@ -568,10 +595,18 @@ export default function POS() {
           )}
           <Button
             onClick={checkout}
-            disabled={cart.length === 0 || paid < total || processing}
+            disabled={
+              cart.length === 0
+              || processing
+              || (!isCredit && paymentMethod === "cash" && paid < total)
+            }
             className="w-full h-12 rounded-xl text-lg font-bold"
           >
-            {processing ? tx("Processing...", "جاري المعالجة...") : tx("Complete Sale", "إتمام البيع")}
+            {processing
+              ? tx("Processing...", "جاري المعالجة...")
+              : isCredit
+                ? tx("Complete Credit", "إتمام الدين")
+                : tx("Complete Sale", "إتمام البيع")}
           </Button>
         </div>
       </div>

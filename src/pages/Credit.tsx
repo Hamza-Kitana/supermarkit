@@ -2,17 +2,25 @@ import { useMemo, useState } from "react";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
-import { getInvoiceItems } from "@/lib/localDb";
+import { applyCreditPayment, getInvoiceItems } from "@/lib/localDb";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 type CreditCustomerRow = {
   name: string;
-  total: number;
+  outstanding: number;
+  paid: number;
+  fullPaidCount: number;
+  partialCount: number;
   invoices: {
     id: string;
     created_at: string;
+    total: number;
+    paid: number;
     netAmount: number;
+    status: "outstanding" | "partial" | "paid";
   }[];
 };
 
@@ -20,14 +28,14 @@ export default function CreditPage() {
   const { invoices } = useInvoices();
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
 
   const creditInvoices = useMemo(
     () =>
-      invoices.filter(
-        (inv) => inv.is_credit && inv.customer_name && inv.total - (inv.returned_amount ?? 0) - inv.paid > 0,
-      ),
+      invoices.filter((inv) => inv.is_credit && inv.customer_name),
     [invoices],
   );
 
@@ -37,19 +45,32 @@ export default function CreditPage() {
       const name = inv.customer_name!.trim();
       const existing = map.get(name) ?? {
         name,
-        total: 0,
+        outstanding: 0,
+        paid: 0,
+        fullPaidCount: 0,
+        partialCount: 0,
         invoices: [],
       };
-      const remaining = Math.max(0, inv.total - (inv.returned_amount ?? 0) - inv.paid);
-      existing.total += remaining;
+      const netTotal = Math.max(0, inv.total - (inv.returned_amount ?? 0));
+      const paid = Math.max(0, Math.min(inv.paid, netTotal));
+      const remaining = Math.max(0, netTotal - paid);
+      const status: "outstanding" | "partial" | "paid" =
+        remaining <= 0 ? "paid" : paid > 0 ? "partial" : "outstanding";
+      existing.outstanding += remaining;
+      existing.paid += paid;
+      if (status === "paid") existing.fullPaidCount += 1;
+      if (status === "partial") existing.partialCount += 1;
       existing.invoices.push({
         id: inv.id,
         created_at: inv.created_at,
+        total: netTotal,
+        paid,
         netAmount: remaining,
+        status,
       });
       map.set(name, existing);
     }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    return Array.from(map.values()).sort((a, b) => b.outstanding - a.outstanding);
   }, [creditInvoices]);
 
   const filteredCustomers = customers.filter((c) =>
@@ -97,7 +118,17 @@ export default function CreditPage() {
               {filteredCustomers.map((c) => (
                 <tr key={c.name} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                   <td className="p-3 font-medium">{c.name}</td>
-                  <td className="p-3 font-bold text-primary">{formatMoney(c.total)}</td>
+                  <td className="p-3">
+                    <div className="space-y-1">
+                      <p className="font-bold text-primary">{formatMoney(c.outstanding)}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {tx("Paid", "المدفوع")}: {formatMoney(c.paid)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {tx("Full paid", "مسدد كامل")}: {c.fullPaidCount} · {tx("Partial", "جزئي")}: {c.partialCount}
+                      </p>
+                    </div>
+                  </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2 justify-end">
                       {c.invoices.map((inv) => (
@@ -110,7 +141,16 @@ export default function CreditPage() {
                           <span className="block" dir="ltr">
                             {formatDate(inv.created_at)}
                           </span>
-                          <span className="block font-semibold">{formatMoney(inv.netAmount)}</span>
+                          <span className="block font-semibold">
+                            {formatMoney(inv.netAmount)}
+                          </span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {inv.status === "paid"
+                              ? tx("Paid", "مسدد")
+                              : inv.status === "partial"
+                                ? tx("Partial paid", "مسدد جزئي")
+                                : tx("Outstanding", "غير مسدد")}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -165,6 +205,42 @@ export default function CreditPage() {
                       ),
                     )}
                   </p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-2">
+                  <p className="text-muted-foreground">{tx("Paid", "المدفوع")}</p>
+                  <p className="font-bold">{formatMoney(selectedInvoice.paid)}</p>
+                </div>
+              </div>
+              <div className="rounded-xl border p-3 space-y-2">
+                <p className="text-sm font-semibold">{tx("Record Payment", "تسجيل دفعة")}</p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    placeholder={tx("Payment amount", "قيمة الدفعة")}
+                    dir="ltr"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        if (!selectedInvoiceId) return;
+                        const applied = applyCreditPayment(selectedInvoiceId, Number(paymentAmount));
+                        setPaymentAmount("");
+                        toast({
+                          title: tx("Payment recorded ✓", "تم تسجيل الدفعة ✓"),
+                          description: tx(`Applied: ${formatMoney(applied)}`, `تم تسجيل: ${formatMoney(applied)}`),
+                        });
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : tx("Failed to record payment", "فشل تسجيل الدفعة");
+                        toast({ title: tx("Error", "خطأ"), description: message, variant: "destructive" });
+                      }
+                    }}
+                  >
+                    {tx("Apply payment", "تسجيل الدفعة")}
+                  </Button>
                 </div>
               </div>
               <div className="rounded-xl border overflow-hidden">

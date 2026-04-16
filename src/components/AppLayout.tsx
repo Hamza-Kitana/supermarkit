@@ -3,16 +3,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import { 
   ShoppingCart, LayoutDashboard, Package, FileText, LogOut, Menu, X, 
-  Store, ShieldCheck, Trash2
+  Store, ShieldCheck, Trash2, Wallet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 
 const navItems = [
   { path: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, roles: ["admin", "super_admin"] },
   { path: "/products", labelKey: "products", icon: Package, roles: ["admin", "super_admin"] },
   { path: "/invoices", labelKey: "invoices", icon: FileText, roles: ["cashier", "admin", "super_admin"] },
+  { path: "/credit", labelKey: "creditPage", icon: Wallet, roles: ["cashier", "admin", "super_admin"] },
   { path: "/access-control", labelKey: "accessControl", icon: ShieldCheck, roles: ["super_admin"] },
   { path: "/trash", labelKey: "trash", icon: Trash2, roles: ["super_admin"] },
   { path: "/cashier", labelKey: "cashier", icon: ShoppingCart, roles: ["cashier", "admin", "super_admin"] },
@@ -22,14 +24,16 @@ type NavLabelKey = (typeof navItems)[number]["labelKey"];
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { role, signOut } = useAuth();
   const { t, language, setLanguage, isArabic } = useLanguage();
+  const creditEnabled = useCreditEnabled();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const filteredNav = navItems
     .filter((item) => role && item.roles.includes(role))
+    .filter((item) => (item.path === "/credit" ? creditEnabled : true))
     .sort((a, b) => {
       if (role !== "cashier") return 0;
-      const cashierOrder = ["/cashier", "/invoices"];
+      const cashierOrder = ["/cashier", "/invoices", "/credit"];
       return cashierOrder.indexOf(a.path) - cashierOrder.indexOf(b.path);
     });
 

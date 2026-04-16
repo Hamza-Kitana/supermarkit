@@ -589,6 +589,23 @@ export function restoreInvoice(invoiceId: string) {
   writeState(state);
 }
 
+export function applyCreditPayment(invoiceId: string, amount: number) {
+  const value = Math.max(0, Number(amount) || 0);
+  if (value <= 0) throw new Error("Enter a valid payment amount");
+
+  const state = readState();
+  const invoice = state.invoices.find((i) => i.id === invoiceId);
+  if (!invoice) throw new Error("Invoice not found");
+  if (!invoice.is_credit) throw new Error("This invoice is not a credit invoice");
+
+  const remaining = Math.max(0, invoice.total - (invoice.returned_amount ?? 0) - invoice.paid);
+  if (remaining <= 0) throw new Error("Credit is already fully paid");
+  const toApply = Math.min(value, remaining);
+  invoice.paid += toApply;
+  writeState(state);
+  return toApply;
+}
+
 export function getReturnPassword() {
   return readState().settings.return_password;
 }

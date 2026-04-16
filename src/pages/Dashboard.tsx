@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { getInvoiceItems, subscribeDbChanges } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
+import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ export default function Dashboard() {
   const { products } = useProducts();
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
+  const creditEnabled = useCreditEnabled();
   const [allItems, setAllItems] = useState<InvoiceItemRow[]>([]);
   const [period, setPeriod] = useState<"day" | "week" | "month" | "year">("day");
   const [selectedDay, setSelectedDay] = useState(() => {
@@ -256,7 +258,7 @@ export default function Dashboard() {
 
   <h2>${tx("Summary", "الملخص")}</h2>
   <p>${tx("Total Sales", "إجمالي المبيعات")}: ${formatMoney(totalSales)}</p>
-  <p>${tx("Outstanding Credit", "إجمالي الدين الحالي")}: ${formatMoney(totalOutstandingCredit)}</p>
+  ${creditEnabled ? `<p>${tx("Outstanding Credit", "إجمالي الدين الحالي")}: ${formatMoney(totalOutstandingCredit)}</p>` : ""}
   <p>${tx("Total Profit", "إجمالي الربح")}: ${formatMoney(totalProfit)}</p>
   <p>${tx("Invoices Count", "عدد الفواتير")}: ${totalInvoices}</p>
   <p>${tx("Cash", "كاش")}: ${formatMoney(paymentTotals.cash)}</p>
@@ -385,15 +387,17 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
-              <ShoppingCart className="w-5 h-5 text-info" />
+        {creditEnabled && (
+          <div className="stat-card">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
+                <ShoppingCart className="w-5 h-5 text-info" />
+              </div>
+              <span className="text-sm text-muted-foreground">{tx("Outstanding Credit", "إجمالي الدين الحالي")}</span>
             </div>
-            <span className="text-sm text-muted-foreground">{tx("Outstanding Credit", "إجمالي الدين الحالي")}</span>
+            <p className="text-2xl font-bold text-foreground">{formatMoney(totalOutstandingCredit)}</p>
           </div>
-          <p className="text-2xl font-bold text-foreground">{formatMoney(totalOutstandingCredit)}</p>
-        </div>
+        )}
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
