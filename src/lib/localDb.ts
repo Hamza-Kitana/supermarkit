@@ -6,6 +6,7 @@ export interface LocalProduct {
   id: string;
   name: string;
   image_url: string | null;
+  cost_price: number;
   retail_price: number;
   wholesale_price: number;
   wholesale_min_qty: number;
@@ -41,6 +42,7 @@ export interface LocalInvoiceItem {
   product_name: string;
   quantity: number;
   returned_quantity: number;
+  unit_cost: number;
   unit_price: number;
   subtotal: number;
 }
@@ -89,6 +91,7 @@ function readState(): LocalState {
       products: (parsed.products ?? []).map((product) => ({
         ...product,
         image_url: (product as LocalProduct).image_url ?? null,
+        cost_price: Math.max(0, Number((product as Partial<LocalProduct>).cost_price ?? 0)),
         wholesale_min_qty: Math.max(
           1,
           ((product as Partial<LocalProduct>).wholesale_min_qty ?? parsed.settings?.wholesale_min_qty ?? 10),
@@ -104,6 +107,7 @@ function readState(): LocalState {
       invoice_items: (parsed.invoice_items ?? []).map((item) => ({
         ...item,
         returned_quantity: (item as LocalInvoiceItem).returned_quantity ?? 0,
+        unit_cost: Math.max(0, Number((item as Partial<LocalInvoiceItem>).unit_cost ?? 0)),
       })),
       settings: {
         return_password: parsed.settings?.return_password ?? "000",
@@ -246,6 +250,7 @@ export function createInvoice(params: {
     product_id: string;
     product_name: string;
     quantity: number;
+    unit_cost: number;
     unit_price: number;
     subtotal: number;
   }>;
@@ -448,6 +453,7 @@ export function seedTestProducts(count = 100) {
       name: `Test Product ${i}`,
       image_url: makePlaceholderImage(`P-${i}`, (i * 29) % 360),
       retail_price: 0.5 + i * 0.35,
+      cost_price: 0.3 + i * 0.18,
       wholesale_price: 0.4 + i * 0.25,
       wholesale_min_qty: wholesaleMin,
       stock: 20 + (i % 40),

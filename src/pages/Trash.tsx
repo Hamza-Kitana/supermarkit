@@ -2,6 +2,16 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   getTrashedInvoices,
   getTrashedProducts,
   permanentlyDeleteInvoice,
@@ -19,6 +29,7 @@ export default function Trash() {
   const { tx, isArabic } = useLanguage();
   const [trashedProducts, setTrashedProducts] = useState(getTrashedProducts());
   const [trashedInvoices, setTrashedInvoices] = useState(getTrashedInvoices());
+  const [pendingDelete, setPendingDelete] = useState<{ type: "product" | "invoice"; id: string } | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -60,10 +71,7 @@ export default function Trash() {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => {
-                  permanentlyDeleteProduct(product.id);
-                  toast({ title: tx("Product permanently deleted", "تم حذف المنتج نهائيًا") });
-                }}
+                onClick={() => setPendingDelete({ type: "product", id: product.id })}
               >
                 {tx("Delete Permanently", "حذف نهائي")}
               </Button>
@@ -96,10 +104,7 @@ export default function Trash() {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => {
-                  permanentlyDeleteInvoice(invoice.id);
-                  toast({ title: tx("Invoice permanently deleted", "تم حذف الفاتورة نهائيًا") });
-                }}
+                onClick={() => setPendingDelete({ type: "invoice", id: invoice.id })}
               >
                 {tx("Delete Permanently", "حذف نهائي")}
               </Button>
@@ -107,6 +112,37 @@ export default function Trash() {
           ))
         )}
       </div>
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent dir={isArabic ? "rtl" : "ltr"}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx("Confirm permanent delete", "تأكيد الحذف النهائي")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx(
+                "This action cannot be undone. The selected item will be deleted permanently.",
+                "لا يمكن التراجع عن هذا الإجراء. سيتم حذف العنصر المحدد نهائيًا.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tx("Cancel", "إلغاء")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingDelete) return;
+                if (pendingDelete.type === "product") {
+                  permanentlyDeleteProduct(pendingDelete.id);
+                  toast({ title: tx("Product permanently deleted", "تم حذف المنتج نهائيًا") });
+                } else {
+                  permanentlyDeleteInvoice(pendingDelete.id);
+                  toast({ title: tx("Invoice permanently deleted", "تم حذف الفاتورة نهائيًا") });
+                }
+                setPendingDelete(null);
+              }}
+            >
+              {tx("Delete Permanently", "حذف نهائي")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -179,6 +179,7 @@ export default function POS() {
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
+        unit_cost: item.product.cost_price ?? 0,
         unit_price: saleType === "retail" ? item.product.retail_price : item.product.wholesale_price,
         subtotal: (saleType === "retail" ? item.product.retail_price : item.product.wholesale_price) * item.quantity,
       }));

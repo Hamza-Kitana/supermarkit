@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useProducts } from "@/hooks/useProducts";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +14,7 @@ import { Plus, Pencil, Trash2, Search } from "lucide-react";
 interface ProductForm {
   name: string;
   image_url: string | null;
+  cost_price: string;
   retail_price: string;
   wholesale_price: string;
   wholesale_min_qty: string;
@@ -25,13 +25,12 @@ interface ProductForm {
 }
 
 const emptyForm: ProductForm = {
-  name: "", image_url: null, retail_price: "", wholesale_price: "", wholesale_min_qty: "10", stock: "", min_stock: "10",
+  name: "", image_url: null, cost_price: "", retail_price: "", wholesale_price: "", wholesale_min_qty: "10", stock: "", min_stock: "10",
   sell_retail: true, sell_wholesale: false,
 };
 
 export default function Products() {
   const { products } = useProducts();
-  const { role } = useAuth();
   const { toast } = useToast();
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
@@ -65,6 +64,7 @@ export default function Products() {
     setForm({
       name: p.name,
       image_url: p.image_url,
+      cost_price: String(p.cost_price ?? 0),
       retail_price: String(p.retail_price),
       wholesale_price: String(p.wholesale_price),
       wholesale_min_qty: String(p.wholesale_min_qty),
@@ -84,6 +84,7 @@ export default function Products() {
       const payload = {
         name: form.name.trim(),
         image_url: form.image_url,
+        cost_price: parseFloat(form.cost_price) || 0,
         retail_price: parseFloat(form.retail_price) || 0,
         wholesale_price: parseFloat(form.wholesale_price) || 0,
         wholesale_min_qty: Math.max(1, parseInt(form.wholesale_min_qty, 10) || 1),
@@ -168,6 +169,7 @@ export default function Products() {
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-right p-3 font-semibold">{tx("Product", "المنتج")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Retail Price", "سعر المفرق")}</th>
+                  <th className="text-right p-3 font-semibold">{tx("Cost Price", "سعر الشراء")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Wholesale Price", "سعر الجملة")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Wholesale Min Qty", "أقل كمية للجملة")}</th>
                   <th className="text-right p-3 font-semibold">{tx("Stock", "المخزون")}</th>
@@ -182,6 +184,7 @@ export default function Products() {
                   <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                     <td className="p-3 font-medium">{p.name}</td>
                     <td className="p-3">{formatMoney(p.retail_price)}</td>
+                    <td className="p-3">{formatMoney(p.cost_price)}</td>
                     <td className="p-3">{formatMoney(p.wholesale_price)}</td>
                     <td className="p-3">{p.wholesale_min_qty}</td>
                     <td className="p-3">
@@ -222,6 +225,7 @@ export default function Products() {
               <p className="font-bold text-sm line-clamp-2 min-h-[40px]">{p.name}</p>
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>{tx("Retail Price", "سعر المفرق")}: <span className="font-semibold text-foreground">{formatMoney(p.retail_price)}</span></p>
+                <p>{tx("Cost Price", "سعر الشراء")}: <span className="font-semibold text-foreground">{formatMoney(p.cost_price)}</span></p>
                 <p>{tx("Wholesale Price", "سعر الجملة")}: <span className="font-semibold text-foreground">{formatMoney(p.wholesale_price)}</span></p>
                 <p>{tx("Wholesale Min Qty", "أقل كمية للجملة")}: <span className="font-semibold text-foreground">{p.wholesale_min_qty}</span></p>
                 <p>{tx("Stock", "المخزون")}: <span className="font-semibold text-foreground">{p.stock}</span></p>
@@ -267,6 +271,10 @@ export default function Products() {
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-1 block">{tx("Cost Price", "سعر الشراء")}</label>
+                <Input type="number" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} className="rounded-xl" dir="ltr" />
+              </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">{tx("Retail Price", "سعر المفرق")}</label>
                 <Input type="number" value={form.retail_price} onChange={(e) => setForm({ ...form, retail_price: e.target.value })} className="rounded-xl" dir="ltr" />
