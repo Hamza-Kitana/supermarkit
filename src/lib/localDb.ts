@@ -468,3 +468,9 @@ export function seedTestProducts(count = 100) {
 
   writeState(state);
 }
+
+export function clearTestProducts() {
+  const state = readState();
+  state.products = state.products.filter((p) => !p.name.startsWith("Test Product "));
+  writeState(state);
+}

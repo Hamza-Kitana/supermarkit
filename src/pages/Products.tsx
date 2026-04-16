@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { addProduct, deleteProduct as removeProduct, seedTestProducts, updateProduct } from "@/lib/localDb";
+import { addProduct, clearTestProducts, deleteProduct as removeProduct, seedTestProducts, updateProduct } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
@@ -40,6 +40,7 @@ export default function Products() {
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [loading, setLoading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [isClearingTests, setIsClearingTests] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
   const filtered = products.filter((p) => p.name.includes(search));
@@ -51,6 +52,20 @@ export default function Products() {
       toast({ title: tx("100 test products added ✓", "تمت إضافة 100 منتج تجريبي ✓") });
     } finally {
       setIsSeeding(false);
+    }
+  };
+
+  const clearTestProductsClick = () => {
+    const confirmed = window.confirm(
+      tx("Are you sure you want to delete all 100 test products?", "هل أنت متأكد أنك تريد حذف كل المنتجات التجريبية؟"),
+    );
+    if (!confirmed) return;
+    setIsClearingTests(true);
+    try {
+      clearTestProducts();
+      toast({ title: tx("Test products removed ✓", "تم حذف المنتجات التجريبية ✓") });
+    } finally {
+      setIsClearingTests(false);
     }
   };
 
@@ -156,9 +171,20 @@ export default function Products() {
             {tx("Cards", "كروت")}
           </button>
         </div>
-        <Button type="button" variant="outline" onClick={addTestProducts} disabled={isSeeding} className="rounded-xl w-full sm:w-auto">
-          {isSeeding ? tx("Adding...", "جاري الإضافة...") : tx("Add 100 Test Products", "إضافة 100 منتج تجريبي")}
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button type="button" variant="outline" onClick={addTestProducts} disabled={isSeeding} className="rounded-xl flex-1">
+            {isSeeding ? tx("Adding...", "جاري الإضافة...") : tx("Add 100 Test Products", "إضافة 100 منتج تجريبي")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={clearTestProductsClick}
+            disabled={isClearingTests}
+            className="rounded-xl flex-1 text-destructive border-destructive/40"
+          >
+            {isClearingTests ? tx("Removing...", "جاري الحذف...") : tx("Remove Test Products", "حذف المنتجات التجريبية")}
+          </Button>
+        </div>
       </div>
 
       {viewMode === "table" ? (
