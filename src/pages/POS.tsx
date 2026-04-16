@@ -40,6 +40,8 @@ export default function POS() {
   const [returnOpen, setReturnOpen] = useState(false);
   const [saleTypeConfirmOpen, setSaleTypeConfirmOpen] = useState(false);
   const [pendingSaleType, setPendingSaleType] = useState<"retail" | "wholesale" | null>(null);
+  const [isCredit, setIsCredit] = useState(false);
+  const [customerName, setCustomerName] = useState("");
 
   const filteredProducts = useMemo(() => {
     if (!search) return products;
@@ -151,7 +153,7 @@ export default function POS() {
 
   const checkout = async () => {
     if (!user || cart.length === 0) return;
-    if (saleType === "wholesale") {
+    if (!isCredit && saleType === "wholesale") {
       const invalidItems = cart.filter((item) => item.quantity < item.product.wholesale_min_qty);
       if (invalidItems.length > 0) {
         const invalidNames = invalidItems
@@ -168,9 +170,16 @@ export default function POS() {
         return;
       }
     }
-    if (paid < total) {
-      toast({ title: tx("Insufficient paid amount", "المبلغ المدفوع غير كافٍ"), variant: "destructive" });
-      return;
+    if (!isCredit) {
+      if (paid < total) {
+        toast({ title: tx("Insufficient paid amount", "المبلغ المدفوع غير كافٍ"), variant: "destructive" });
+        return;
+      }
+    } else {
+      if (!customerName.trim()) {
+        toast({ title: tx("Customer name is required for credit sale", "اسم الزبون مطلوب للبيع بالدين"), variant: "destructive" });
+        return;
+      }
     }
 
     setProcessing(true);
@@ -188,18 +197,32 @@ export default function POS() {
         cashier_id: user.id,
         sale_type: saleType,
         total,
-        paid,
-        change_amount: change,
+        paid: isCredit ? 0 : paid,
+        change_amount: isCredit ? 0 : change,
+        is_credit: isCredit,
+        customer_name: isCredit ? customerName.trim() : null,
         items,
       });
 
       toast({
-        title: tx("Sale completed successfully ✓", "تمت العملية بنجاح ✓"),
-        description: tx(`Total: ${formatMoney(total)} | Change: ${formatMoney(change)}`, `المجموع: ${formatMoney(total)} | الباقي: ${formatMoney(change)}`),
+        title: isCredit
+          ? tx("Credit sale saved ✓", "تم حفظ البيع بالدين ✓")
+          : tx("Sale completed successfully ✓", "تمت العملية بنجاح ✓"),
+        description: isCredit
+          ? tx(
+              `Customer: ${customerName.trim()} | Total: ${formatMoney(total)}`,
+              `الزبون: ${customerName.trim()} | المجموع: ${formatMoney(total)}`,
+            )
+          : tx(
+              `Total: ${formatMoney(total)} | Change: ${formatMoney(change)}`,
+              `المجموع: ${formatMoney(total)} | الباقي: ${formatMoney(change)}`,
+            ),
       });
 
       setCart([]);
       setPaidAmount("");
+      setCustomerName("");
+      setIsCredit(false);
     } catch (err: any) {
       toast({ title: tx("Error", "خطأ"), description: err.message, variant: "destructive" });
     } finally {
@@ -243,6 +266,23 @@ export default function POS() {
               onChange={(e) => setSearch(e.target.value)}
               className="pr-10 rounded-xl"
             />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              variant={isCredit ? "default" : "outline"}
+              className="rounded-xl gap-2 flex-1"
+              onClick={() => setIsCredit((prev) => !prev)}
+            >
+              {tx("Credit", "دين")}
+            </Button>
+            {isCredit && (
+              <Input
+                placeholder={tx("Customer name", "اسم الزبون")}
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="rounded-xl flex-1"
+              />
+            )}
           </div>
           <Button variant="outline" className="rounded-xl gap-2 w-full sm:w-auto" onClick={() => setReturnOpen(true)}>
             <RotateCcw className="w-4 h-4" />

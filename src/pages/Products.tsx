@@ -6,6 +6,16 @@ import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { addProduct, clearTestProducts, deleteProduct as removeProduct, seedTestProducts, updateProduct } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -40,6 +50,7 @@ export default function Products() {
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [loading, setLoading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isClearingTests, setIsClearingTests] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
@@ -226,7 +237,10 @@ export default function Products() {
                         <button onClick={() => openEdit(p)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-primary/10 text-primary transition-colors">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button onClick={() => deleteProduct(p.id)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-destructive/10 text-destructive transition-colors">
+                        <button
+                          onClick={() => setPendingDeleteId(p.id)}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-destructive/10 text-destructive transition-colors"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -260,7 +274,12 @@ export default function Products() {
                 <Button type="button" variant="outline" className="flex-1 h-9" onClick={() => openEdit(p)}>
                   <Pencil className="w-4 h-4" />
                 </Button>
-                <Button type="button" variant="outline" className="flex-1 h-9 text-destructive" onClick={() => deleteProduct(p.id)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 h-9 text-destructive"
+                  onClick={() => setPendingDeleteId(p.id)}
+                >
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
@@ -297,17 +316,50 @@ export default function Products() {
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium mb-1 block">{tx("Cost Price", "سعر الشراء")}</label>
-                <Input type="number" value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: e.target.value })} className="rounded-xl" dir="ltr" />
+              <div className="space-y-1">
+                <label className="text-sm font-medium mb-1 block">
+                  {tx("Cost Price (per unit)", "سعر الشراء للحبة الواحدة")}
+                </label>
+                <Input
+                  type="number"
+                  value={form.cost_price}
+                  onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                  className="rounded-xl"
+                  dir="ltr"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {tx("How much you pay to the supplier for one unit.", "كم تدفع للتاجر على كل حبة واحدة.")}
+                </p>
               </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">{tx("Retail Price", "سعر المفرق")}</label>
-                <Input type="number" value={form.retail_price} onChange={(e) => setForm({ ...form, retail_price: e.target.value })} className="rounded-xl" dir="ltr" />
+              <div className="space-y-1">
+                <label className="text-sm font-medium mb-1 block">
+                  {tx("Retail Price (per unit)", "سعر المفرق للحبة الواحدة")}
+                </label>
+                <Input
+                  type="number"
+                  value={form.retail_price}
+                  onChange={(e) => setForm({ ...form, retail_price: e.target.value })}
+                  className="rounded-xl"
+                  dir="ltr"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {tx("The price the customer pays for one unit.", "السعر الذي يدفعه الزبون للحبة الواحدة.")}
+                </p>
               </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">{tx("Wholesale Price", "سعر الجملة")}</label>
-                <Input type="number" value={form.wholesale_price} onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })} className="rounded-xl" dir="ltr" />
+              <div className="space-y-1">
+                <label className="text-sm font-medium mb-1 block">
+                  {tx("Wholesale Price (per unit)", "سعر الجملة للحبة الواحدة")}
+                </label>
+                <Input
+                  type="number"
+                  value={form.wholesale_price}
+                  onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })}
+                  className="rounded-xl"
+                  dir="ltr"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {tx("Price per unit when selling in wholesale quantity.", "سعر الحبة الواحدة عند البيع بالجملة.")}
+                </p>
               </div>
             </div>
             <div>
@@ -357,6 +409,33 @@ export default function Products() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={Boolean(pendingDeleteId)} onOpenChange={(open) => !open && setPendingDeleteId(null)}>
+        <AlertDialogContent dir={isArabic ? "rtl" : "ltr"}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {tx("Move product to trash?", "نقل المنتج إلى سلة المحذوفات؟")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx(
+                "This will move the product to trash. You can restore it later from Trash page.",
+                "سيتم نقل المنتج إلى سلة المحذوفات ويمكن استرجاعه لاحقًا من صفحة سلة المحذوفات.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tx("Cancel", "إلغاء")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingDeleteId) return;
+                deleteProduct(pendingDeleteId);
+                setPendingDeleteId(null);
+              }}
+            >
+              {tx("Move to Trash", "نقل إلى السلة")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

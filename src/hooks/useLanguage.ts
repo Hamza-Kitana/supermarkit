@@ -22,6 +22,8 @@ const dict = {
     superAdmin: "Super Admin",
     admin: "Admin",
     cashierRole: "Cashier",
+  enableCredit: "Enable credit sales",
+  disableCredit: "Disable credit sales",
   },
   ar: {
     dashboard: "لوحة التحكم",
@@ -38,6 +40,8 @@ const dict = {
     superAdmin: "سوبر أدمن",
     admin: "أدمن",
     cashierRole: "كاشير",
+    enableCredit: "تفعيل البيع بالدين",
+    disableCredit: "إلغاء البيع بالدين",
   },
 } as const;
 

@@ -28,6 +28,8 @@ export interface LocalInvoice {
   last_returned_at: string | null;
   paid: number;
   change_amount: number;
+  is_credit: boolean;
+  customer_name: string | null;
   is_return: boolean;
   deleted_at: string | null;
   return_approved_by: string | null;
@@ -56,6 +58,7 @@ type LocalState = {
     currency: CurrencyCode;
     wholesale_min_qty: number;
     language: LanguageCode;
+    enable_credit: boolean;
   };
 };
 
@@ -71,6 +74,7 @@ const defaultState: LocalState = {
     currency: "JOD",
     wholesale_min_qty: 10,
     language: "en",
+    enable_credit: false,
   },
 };
 
@@ -114,6 +118,7 @@ function readState(): LocalState {
         currency: parsed.settings?.currency === "USD" ? "USD" : "JOD",
         wholesale_min_qty: Math.max(1, parsed.settings?.wholesale_min_qty ?? 10),
         language: parsed.settings?.language === "ar" ? "ar" : "en",
+        enable_credit: Boolean(parsed.settings?.enable_credit),
       },
     };
   } catch {
@@ -246,6 +251,8 @@ export function createInvoice(params: {
   total: number;
   paid: number;
   change_amount: number;
+    is_credit: boolean;
+    customer_name?: string | null;
   items: Array<{
     product_id: string;
     product_name: string;
@@ -268,6 +275,8 @@ export function createInvoice(params: {
     last_returned_at: null,
     paid: params.paid,
     change_amount: params.change_amount,
+    is_credit: params.is_credit,
+    customer_name: params.customer_name ?? null,
     is_return: false,
     deleted_at: null,
     return_approved_by: null,
@@ -439,6 +448,16 @@ export function getLanguage() {
 export function setLanguage(language: LanguageCode) {
   const state = readState();
   state.settings.language = language;
+  writeState(state);
+}
+
+export function getCreditEnabled() {
+  return readState().settings.enable_credit;
+}
+
+export function setCreditEnabled(enabled: boolean) {
+  const state = readState();
+  state.settings.enable_credit = enabled;
   writeState(state);
 }
 

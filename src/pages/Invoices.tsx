@@ -93,11 +93,18 @@ export default function Invoices() {
                   <tr key={inv.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                     <td className="p-3 text-xs">{formatDate(inv.created_at)}</td>
                     <td className="p-3">
-                      <span className={cn("text-xs font-semibold px-2 py-1 rounded-lg",
-                        inv.sale_type === "retail" ? "bg-primary/10 text-primary" : "bg-info/10 text-info"
-                      )}>
-                        {inv.sale_type === "retail" ? tx("Retail", "مفرق") : tx("Wholesale", "جملة")}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={cn("text-xs font-semibold px-2 py-1 rounded-lg",
+                          inv.sale_type === "retail" ? "bg-primary/10 text-primary" : "bg-info/10 text-info"
+                        )}>
+                          {inv.sale_type === "retail" ? tx("Retail", "مفرق") : tx("Wholesale", "جملة")}
+                        </span>
+                        {inv.is_credit && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800" dir="ltr">
+                            {tx("Credit", "دين")}{inv.customer_name ? ` · ${inv.customer_name}` : ""}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3 font-bold">{formatMoney(getInvoiceReturnSummary(inv.id).netAmount)}</td>
                     <td className="p-3">{formatMoney(inv.paid)}</td>
@@ -160,6 +167,13 @@ export default function Invoices() {
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Purchase Time", "وقت الشراء")}</p>
                   <p className="font-bold">{formatDate(selectedInvoice.created_at)}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 p-2">
+                  <p className="text-muted-foreground">{tx("Sale Type", "نوع البيع")}</p>
+                  <p className="font-bold">
+                    {selectedInvoice.sale_type === "retail" ? tx("Retail", "مفرق") : tx("Wholesale", "جملة")}
+                    {selectedInvoice.is_credit && ` · ${tx("Credit", "دين")}`}
+                  </p>
                 </div>
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Return Time", "وقت الإرجاع")}</p>

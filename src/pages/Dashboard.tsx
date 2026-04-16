@@ -110,6 +110,12 @@ export default function Dashboard() {
     const net = Math.max(0, invoice.total - returned);
     return sum + net;
   }, 0);
+  const totalOutstandingCredit = filteredInvoices.reduce((sum, invoice) => {
+    if (!invoice.is_credit) return sum;
+    const returned = invoice.returned_amount ?? 0;
+    const net = Math.max(0, invoice.total - returned - invoice.paid);
+    return sum + net;
+  }, 0);
   const totalProfit = useMemo(() => {
     const invoiceIdsInPeriod = new Set(filteredInvoices.map((inv) => inv.id));
     return allItems.reduce((sum, item) => {
@@ -200,6 +206,15 @@ export default function Dashboard() {
             <span className="text-sm text-muted-foreground">{tx("Total Sales", "إجمالي المبيعات")}</span>
           </div>
           <p className="text-2xl font-bold text-foreground">{formatMoney(totalSales)}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
+              <ShoppingCart className="w-5 h-5 text-info" />
+            </div>
+            <span className="text-sm text-muted-foreground">{tx("Outstanding Credit", "إجمالي الدين الحالي")}</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground">{formatMoney(totalOutstandingCredit)}</p>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">

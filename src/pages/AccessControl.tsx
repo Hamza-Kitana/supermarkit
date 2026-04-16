@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { updateLocalAccountPassword } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrency } from "@/hooks/useCurrency";
-import { setReturnPassword } from "@/lib/localDb";
+import { getCreditEnabled, setCreditEnabled, setReturnPassword } from "@/lib/localDb";
 import { useLanguage } from "@/hooks/useLanguage";
 
 type AccountKey = "cash" | "admin" | "sadmin";
@@ -24,6 +24,7 @@ export default function AccessControl() {
   const [newPassword, setNewPassword] = useState("");
   const [returnPassword, setReturnPasswordInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [creditEnabled, setCreditEnabledState] = useState<boolean>(getCreditEnabled());
 
   const handleUpdatePassword = async () => {
     if (!newPassword.trim()) {
@@ -106,6 +107,38 @@ export default function AccessControl() {
           </div>
           <p className="text-xs text-muted-foreground">
             {tx("This setting applies instantly across prices and invoices.", "ينطبق هذا الإعداد فورًا على الأسعار والفواتير.")}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>{tx("Enable credit sales", "تفعيل البيع بالدين")}</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={creditEnabled ? "default" : "outline"}
+              onClick={() => {
+                setCreditEnabled(true);
+                setCreditEnabledState(true);
+                toast({ title: tx("Credit sales enabled", "تم تفعيل البيع بالدين") });
+              }}
+            >
+              {tx("Enable", "تفعيل")}
+            </Button>
+            <Button
+              variant={!creditEnabled ? "default" : "outline"}
+              onClick={() => {
+                setCreditEnabled(false);
+                setCreditEnabledState(false);
+                toast({ title: tx("Credit sales disabled", "تم إلغاء البيع بالدين") });
+              }}
+            >
+              {tx("Disable", "إلغاء")}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {tx(
+              "When enabled, cashier can mark invoices as credit with customer name.",
+              "عند التفعيل، يمكن للكاشير تسجيل الفواتير كدين مع اسم الزبون.",
+            )}
           </p>
         </div>
 
