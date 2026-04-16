@@ -14,7 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/useLanguage";
 
 export default function Login() {
-  const [account, setAccount] = useState<"cash" | "admin" | "sadmin">("cash");
+  const [account, setAccount] = useState<"cashier" | "admin" | "sadmin">("cashier");
+  const [cashierName, setCashierName] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
@@ -25,7 +26,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await signIn(account, password);
+      await signIn(account, password, cashierName);
     } catch (err: any) {
       toast({
         title: tx("Login failed", "فشل تسجيل الدخول"),
@@ -54,18 +55,33 @@ export default function Login() {
               <label className="text-sm font-medium text-foreground">{tx("Account", "الحساب")}</label>
               <Select
                 value={account}
-                onValueChange={(value: "cash" | "admin" | "sadmin") => setAccount(value)}
+                onValueChange={(value: "cashier" | "admin" | "sadmin") => setAccount(value)}
               >
                 <SelectTrigger className="h-12 rounded-xl">
                   <SelectValue placeholder={tx("Select account", "اختر الحساب")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">cash</SelectItem>
+                  <SelectItem value="cashier">{tx("Cashier", "كاشير")}</SelectItem>
                   <SelectItem value="admin">admin</SelectItem>
                   <SelectItem value="sadmin">Sadmin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {account === "cashier" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">
+                  {tx("Cashier name", "اسم الكاشير")}
+                </label>
+                <Input
+                  value={cashierName}
+                  onChange={(e) => setCashierName(e.target.value)}
+                  placeholder={tx("Type cashier name added by super admin", "اكتب اسم الكاشير المضاف من السوبر أدمن")}
+                  className="h-12 rounded-xl text-left"
+                  dir="ltr"
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">{tx("Password", "كلمة المرور")}</label>
               <Input

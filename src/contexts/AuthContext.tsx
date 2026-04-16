@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { getCashiers } from "@/lib/localDb";
 
 type AppRole = "super_admin" | "admin" | "cashier";
 type AccountKey = "cash" | "admin" | "sadmin";
+type SignInMode = "cashier" | "admin" | "sadmin";
 
 interface LocalUser {
   id: string;
-  email: string;
-  accountKey: AccountKey;
+  displayName: string;
+  accountKey: AccountKey | "cashier_user";
+  cashierId?: string;
 }
 
 interface LoginAccount {
@@ -55,7 +58,7 @@ interface AuthContextType {
   user: LocalUser | null;
   role: AppRole | null;
   loading: boolean;
-  signIn: (accountKey: AccountKey, password: string) => Promise<void>;
+  signIn: (mode: SignInMode, password: string, cashierName?: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -74,17 +77,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const session = JSON.parse(sessionRaw) as { accountKey: AccountKey };
-      const account = readAccounts().find((acc) => acc.key === session.accountKey);
-      if (account) {
-        setUser({
-          id: account.key,
-          email: account.email,
-          accountKey: account.key,
-        });
-        setRole(account.role);
+      const session = JSON.parse(sessionRaw) as
+        | { mode: "admin" | "sadmin" }
+        | { mode: "cashier"; cashierId: string; cashierName: string };
+
+      if (session.mode === "cashier") {
+        const cashier = getCashiers().find((c) => c.id === session.cashierId);
+        if (!cashier) {
+          localStorage.removeItem(AUTH_SESSION_KEY);
+        } else {
+          setUser({
+            id: cashier.id,
+            displayName: cashier.name,
+            accountKey: "cashier_user",
+            cashierId: cashier.id,
+          });
+          setRole("cashier");
+        }
       } else {
-        localStorage.removeItem(AUTH_SESSION_KEY);
+        const accountKey = session.mode === "admin" ? "admin" : "sadmin";
+        const account = readAccounts().find((acc) => acc.key === accountKey);
+        if (!account) {
+          localStorage.removeItem(AUTH_SESSION_KEY);
+        } else {
+          setUser({
+            id: account.key,
+            displayName: session.mode === "admin" ? "admin" : "Sadmin",
+            accountKey: account.key,
+          });
+          setRole(account.role);
+        }
       }
     } catch {
       localStorage.removeItem(AUTH_SESSION_KEY);
@@ -92,7 +114,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  const signIn = async (accountKey: AccountKey, password: string) => {
+  const signIn = async (mode: SignInMode, password: string, cashierName?: string) => {
+    if (mode === "cashier") {
+      const matchedCashier = getCashiers().find(
+        (c) => c.name.toLowerCase() === (cashierName ?? "").trim().toLowerCase(),
+      );
+      if (!matchedCashier) {
+        throw new Error("Cashier name not found");
+      }
+      if (matchedCashier.password !== password) {
+        throw new Error("Invalid account or password");
+      }
+      const nextUser: LocalUser = {
+        id: matchedCashier.id,
+        displayName: matchedCashier.name,
+        accountKey: "cashier_user",
+        cashierId: matchedCashier.id,
+      };
+      localStorage.setItem(
+        AUTH_SESSION_KEY,
+        JSON.stringify({ mode: "cashier", cashierId: matchedCashier.id, cashierName: matchedCashier.name }),
+      );
+      setUser(nextUser);
+      setRole("cashier");
+      return;
+    }
+
+    const accountKey: AccountKey = mode === "admin" ? "admin" : "sadmin";
     const account = readAccounts().find((acc) => acc.key === accountKey);
     if (!account || account.password !== password) {
       throw new Error("Invalid account or password");
@@ -100,11 +148,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const nextUser: LocalUser = {
       id: account.key,
-      email: account.email,
+      displayName: mode === "admin" ? "admin" : "Sadmin",
       accountKey: account.key,
     };
 
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ accountKey }));
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ mode }));
     setUser(nextUser);
     setRole(account.role);
   };

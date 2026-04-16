@@ -24,6 +24,7 @@ export interface LocalProduct {
 export interface LocalCashier {
   id: string;
   name: string;
+  password: string;
   created_at: string;
   deleted_at: string | null;
 }
@@ -129,6 +130,7 @@ function readState(): LocalState {
         ? (parsed as any).cashiers.map((c: any) => ({
             id: String(c.id),
             name: String(c.name ?? "").trim() || "Cashier",
+            password: String(c.password ?? "000"),
             created_at: c.created_at ?? new Date().toISOString(),
             deleted_at: c.deleted_at ?? null,
           }))
@@ -201,7 +203,7 @@ export function getCashiers(options?: { includeDeleted?: boolean }) {
   return list.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function addCashier(name: string) {
+export function addCashier(name: string, password = "000") {
   const trimmed = name.trim();
   if (!trimmed) return;
   const state = readState();
@@ -209,6 +211,7 @@ export function addCashier(name: string) {
   state.cashiers.push({
     id: newId(),
     name: trimmed,
+    password: password.trim() || "000",
     created_at: now,
     deleted_at: null,
   });
@@ -221,6 +224,16 @@ export function updateCashier(id: string, name: string) {
   const state = readState();
   state.cashiers = state.cashiers.map((c) =>
     c.id === id ? { ...c, name: trimmed } : c,
+  );
+  writeState(state);
+}
+
+export function updateCashierPassword(id: string, password: string) {
+  const trimmed = password.trim();
+  if (!trimmed) return;
+  const state = readState();
+  state.cashiers = state.cashiers.map((c) =>
+    c.id === id ? { ...c, password: trimmed } : c,
   );
   writeState(state);
 }
@@ -358,6 +371,7 @@ export function getReturnableInvoices() {
 
 export function createInvoice(params: {
   cashier_id: string;
+  cashier_name: string;
   sale_type: SaleType;
   total: number;
   paid: number;
@@ -381,6 +395,7 @@ export function createInvoice(params: {
   const invoice: LocalInvoice = {
     id: invoiceId,
     cashier_id: params.cashier_id,
+    cashier_name: params.cashier_name,
     sale_type: params.sale_type,
     total: params.total,
     returned_amount: 0,

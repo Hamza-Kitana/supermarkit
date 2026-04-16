@@ -12,14 +12,14 @@ import {
   setReturnPassword,
   addCashier,
   updateCashier,
+  updateCashierPassword,
   softDeleteCashier,
 } from "@/lib/localDb";
 import { useLanguage } from "@/hooks/useLanguage";
 
-type AccountKey = "cash" | "admin" | "sadmin";
+type AccountKey = "admin" | "sadmin";
 
 const accounts: { key: AccountKey; label: string }[] = [
-  { key: "cash", label: "cash" },
   { key: "admin", label: "admin" },
   { key: "sadmin", label: "Sadmin" },
 ];
@@ -27,14 +27,15 @@ const accounts: { key: AccountKey; label: string }[] = [
 export default function AccessControl() {
   const { toast } = useToast();
   const { currency, setCurrency } = useCurrency();
-  const { tx, language, setLanguage, isArabic } = useLanguage();
+  const { tx, isArabic } = useLanguage();
   const { cashiers } = useCashiers({ includeDeleted: true });
-  const [selectedAccount, setSelectedAccount] = useState<AccountKey>("cash");
+  const [selectedAccount, setSelectedAccount] = useState<AccountKey>("admin");
   const [newPassword, setNewPassword] = useState("");
   const [returnPassword, setReturnPasswordInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [creditEnabled, setCreditEnabledState] = useState<boolean>(getCreditEnabled());
   const [cashierName, setCashierName] = useState("");
+  const [cashierPassword, setCashierPassword] = useState("000");
   const [editingCashierId, setEditingCashierId] = useState<string | null>(null);
 
   const handleUpdatePassword = async () => {
@@ -71,18 +72,23 @@ export default function AccessControl() {
     }
     if (editingCashierId) {
       updateCashier(editingCashierId, trimmed);
+      if (cashierPassword.trim()) {
+        updateCashierPassword(editingCashierId, cashierPassword.trim());
+      }
       toast({ title: tx("Cashier updated ✓", "تم تحديث الكاشير ✓") });
     } else {
-      addCashier(trimmed);
+      addCashier(trimmed, cashierPassword.trim() || "000");
       toast({ title: tx("Cashier added ✓", "تمت إضافة الكاشير ✓") });
     }
     setCashierName("");
+    setCashierPassword("000");
     setEditingCashierId(null);
   };
 
-  const handleEditCashier = (id: string, name: string) => {
+  const handleEditCashier = (id: string, name: string, password: string) => {
     setEditingCashierId(id);
     setCashierName(name);
+    setCashierPassword(password || "000");
   };
 
   const handleDeleteCashier = (id: string) => {
@@ -97,6 +103,7 @@ export default function AccessControl() {
     if (editingCashierId === id) {
       setEditingCashierId(null);
       setCashierName("");
+      setCashierPassword("000");
     }
   };
 
@@ -110,33 +117,6 @@ export default function AccessControl() {
       </div>
 
       <div className="glass-card rounded-2xl p-5 space-y-4">
-        <div className="space-y-2">
-          <Label>{tx("Language", "اللغة")}</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              className={
-                language === "ar"
-                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
-                  : "bg-muted/40 text-foreground hover:bg-muted"
-              }
-              onClick={() => setLanguage("ar")}
-            >
-              {tx("Arabic", "عربي")}
-            </Button>
-            <Button
-              variant="outline"
-              className={
-                language === "en"
-                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
-                  : "bg-muted/40 text-foreground hover:bg-muted"
-              }
-              onClick={() => setLanguage("en")}
-            >
-              English
-            </Button>
-          </div>
-        </div>
         <div className="space-y-2">
           <Label>{tx("System Currency", "عملة النظام")}</Label>
           <div className="grid grid-cols-2 gap-2">
@@ -243,6 +223,18 @@ export default function AccessControl() {
             placeholder={tx("Example: Ahmed", "مثال: أحمد")}
           />
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="cashier-password">{tx("Cashier Password", "كلمة مرور الكاشير")}</Label>
+          <Input
+            id="cashier-password"
+            type="password"
+            value={cashierPassword}
+            onChange={(e) => setCashierPassword(e.target.value)}
+            placeholder={tx("Example: 000", "مثال: 000")}
+            dir="ltr"
+            className="text-left"
+          />
+        </div>
         <Button className="w-full" type="button" onClick={handleSaveCashier}>
           {editingCashierId
             ? tx("Save Cashier", "حفظ الكاشير")
@@ -251,7 +243,7 @@ export default function AccessControl() {
 
         <div className="space-y-2">
           <Label>{tx("Existing Cashiers", "الكاشيرية الحاليين")}</Label>
-          <div className="max-h-60 overflow-y-auto space-y-1 text-sm">
+          <div className="max-h-80 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
             {cashiers.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 {tx("No cashiers yet. Add one above.", "لا يوجد كاشير بعد. أضف واحداً من الأعلى.")}
@@ -260,12 +252,17 @@ export default function AccessControl() {
             {cashiers.map((c) => (
               <div
                 key={c.id}
-                className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-muted/40"
+                className="rounded-xl border border-border/60 bg-muted/30 p-3 space-y-2"
               >
-                <div className="flex flex-col">
-                  <span className={c.deleted_at ? "line-through text-muted-foreground" : ""}>
-                    {c.name}
-                  </span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className={c.deleted_at ? "line-through text-muted-foreground font-semibold" : "font-semibold"}>
+                      {c.name}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground" dir="ltr">
+                      ID: {c.id.slice(0, 8)}
+                    </span>
+                  </div>
                   {c.deleted_at && (
                     <span className="text-[10px] text-muted-foreground">
                       {tx("Archived", "مؤرشف")}
@@ -276,15 +273,15 @@ export default function AccessControl() {
                   <div className="flex gap-2">
                     <Button
                       type="button"
-                      size="xs"
+                      size="sm"
                       variant="outline"
-                      onClick={() => handleEditCashier(c.id, c.name)}
+                      onClick={() => handleEditCashier(c.id, c.name, c.password)}
                     >
                       {tx("Edit", "تعديل")}
                     </Button>
                     <Button
                       type="button"
-                      size="xs"
+                      size="sm"
                       variant="outline"
                       className="text-destructive border-destructive/40"
                       onClick={() => handleDeleteCashier(c.id)}

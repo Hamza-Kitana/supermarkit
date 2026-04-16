@@ -138,6 +138,15 @@ export default function Dashboard() {
       return sum + (item.unit_price - item.unit_cost) * netQty;
     }, 0);
   }, [allItems, filteredInvoices]);
+  const totalPurchases = useMemo(() => {
+    const invoiceIdsInPeriod = new Set(filteredInvoices.map((inv) => inv.id));
+    return allItems.reduce((sum, item) => {
+      if (!invoiceIdsInPeriod.has(item.invoice_id)) return sum;
+      const netQty = item.quantity - item.returned_quantity;
+      if (netQty <= 0) return sum;
+      return sum + item.unit_cost * netQty;
+    }, 0);
+  }, [allItems, filteredInvoices]);
   const totalInvoices = filteredInvoices.filter((invoice) => Math.max(0, invoice.total - (invoice.returned_amount ?? 0)) > 0).length;
   const lowStockProducts = products.filter((p) => p.stock <= p.min_stock && p.stock > 0);
   const outOfStockProducts = products.filter((p) => p.stock <= 0);
@@ -332,7 +341,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -383,6 +392,15 @@ export default function Dashboard() {
             <span className="text-sm text-muted-foreground">{tx("Total Profit", "إجمالي الربح")}</span>
           </div>
           <p className="text-2xl font-bold text-foreground">{formatMoney(totalProfit)}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
+              <ShoppingCart className="w-5 h-5 text-info" />
+            </div>
+            <span className="text-sm text-muted-foreground">{tx("Total Purchases", "إجمالي المشتريات")}</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground">{formatMoney(totalPurchases)}</p>
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">
