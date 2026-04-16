@@ -575,6 +575,7 @@ export default function POS() {
           {paymentMethod === "cash" && !isCredit && (
             <Input
               type="number"
+              min={0}
               placeholder={tx(`Paid amount (${currency})`, `المبلغ المدفوع (${currency})`)}
               value={paidAmount}
               onChange={(e) => setPaidAmount(e.target.value)}

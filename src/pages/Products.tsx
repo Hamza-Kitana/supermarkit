@@ -139,12 +139,12 @@ export default function Products() {
       const payload = {
         name: form.name.trim(),
         image_url: form.image_url,
-        cost_price: parseFloat(form.cost_price) || 0,
-        retail_price: parseFloat(form.retail_price) || 0,
-        wholesale_price: parseFloat(form.wholesale_price) || 0,
+        cost_price: Math.max(0, parseFloat(form.cost_price) || 0),
+        retail_price: Math.max(0, parseFloat(form.retail_price) || 0),
+        wholesale_price: Math.max(0, parseFloat(form.wholesale_price) || 0),
         wholesale_min_qty: Math.max(1, parseInt(form.wholesale_min_qty, 10) || 1),
-        stock: parseInt(form.stock) || 0,
-        min_stock: parseInt(form.min_stock) || 10,
+        stock: Math.max(0, parseInt(form.stock, 10) || 0),
+        min_stock: Math.max(0, parseInt(form.min_stock, 10) || 10),
         sell_retail: form.sell_retail,
         sell_wholesale: form.sell_wholesale,
         category_id: form.category_id === "uncategorized" ? null : form.category_id,
@@ -447,6 +447,7 @@ export default function Products() {
                 </label>
                 <Input
                   type="number"
+                  min={0}
                   value={form.cost_price}
                   onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
                   className="rounded-xl"
@@ -462,6 +463,7 @@ export default function Products() {
                 </label>
                 <Input
                   type="number"
+                  min={0}
                   value={form.retail_price}
                   onChange={(e) => setForm({ ...form, retail_price: e.target.value })}
                   className="rounded-xl"
@@ -477,6 +479,7 @@ export default function Products() {
                 </label>
                 <Input
                   type="number"
+                  min={0}
                   value={form.wholesale_price}
                   onChange={(e) => setForm({ ...form, wholesale_price: e.target.value })}
                   className="rounded-xl"
@@ -501,11 +504,11 @@ export default function Products() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium mb-1 block">{tx("Quantity", "الكمية")}</label>
-                <Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="rounded-xl" dir="ltr" />
+                <Input type="number" min={0} value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} className="rounded-xl" dir="ltr" />
               </div>
               <div>
                 <label className="text-sm font-medium mb-1 block">{tx("Stock Alert Threshold", "مقدار تنبيه المخزون")}</label>
-                <Input type="number" value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: e.target.value })} className="rounded-xl" dir="ltr" />
+                <Input type="number" min={0} value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: e.target.value })} className="rounded-xl" dir="ltr" />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

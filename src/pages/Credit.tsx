@@ -90,6 +90,9 @@ export default function CreditPage() {
     });
 
   const items = selectedInvoiceId ? getInvoiceItems(selectedInvoiceId) : [];
+  const selectedInvoiceRemaining = selectedInvoice
+    ? Math.max(0, selectedInvoice.total - (selectedInvoice.returned_amount ?? 0) - selectedInvoice.paid)
+    : 0;
 
   return (
     <div className="space-y-4" dir={isArabic ? "rtl" : "ltr"}>
@@ -224,6 +227,7 @@ export default function CreditPage() {
                   />
                   <Button
                     type="button"
+                    disabled={selectedInvoiceRemaining <= 0}
                     onClick={() => {
                       try {
                         if (!selectedInvoiceId) return;
@@ -242,6 +246,11 @@ export default function CreditPage() {
                     {tx("Apply payment", "تسجيل الدفعة")}
                   </Button>
                 </div>
+                {selectedInvoiceRemaining <= 0 && (
+                  <p className="text-xs text-success">
+                    {tx("This credit invoice is fully paid and closed.", "هذه الفاتورة مسددة بالكامل ومغلقة.")}
+                  </p>
+                )}
               </div>
               <div className="rounded-xl border overflow-hidden">
                 <table className="w-full text-sm">

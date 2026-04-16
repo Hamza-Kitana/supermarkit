@@ -21,7 +21,7 @@ const navItems = [
 type NavLabelKey = (typeof navItems)[number]["labelKey"];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { role, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const { t, language, setLanguage, isArabic } = useLanguage();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +35,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     });
 
   const roleLabel = role === "super_admin" ? t("superAdmin") : role === "admin" ? t("admin") : t("cashierRole");
+  const accountName = user?.displayName?.trim() || roleLabel;
 
   return (
     <div className="min-h-screen flex" dir={isArabic ? "rtl" : "ltr"}>
@@ -60,7 +61,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </div>
             <div>
               <h2 className="font-bold text-lg">Supermarket</h2>
-              <p className="text-xs text-sidebar-foreground/60">{roleLabel}</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">{accountName}</p>
             </div>
           </div>
         </div>
@@ -117,7 +118,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </div>
           </div>
           <p className="text-xs text-sidebar-foreground/50 px-4 mb-2 truncate">
-            {t("account")}: {roleLabel}
+            {t("account")}: {accountName}
           </p>
           <button
             onClick={signOut}
