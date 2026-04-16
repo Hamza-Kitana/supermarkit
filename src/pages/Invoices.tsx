@@ -116,6 +116,8 @@ export default function Invoices() {
                         <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-muted/60">
                           {inv.payment_method === "visa"
                             ? tx("Visa", "فيزا")
+                            : inv.payment_method === "wallet"
+                              ? tx("Wallet", "محفظة")
                             : tx("Cash", "كاش")}
                         </span>
                       ) : (
@@ -204,6 +206,8 @@ export default function Invoices() {
                       ? tx("Credit", "دين")
                       : selectedInvoice.payment_method === "visa"
                         ? tx("Visa", "فيزا")
+                        : selectedInvoice.payment_method === "wallet"
+                          ? tx("Wallet", "محفظة")
                         : tx("Cash", "كاش")}
                   </p>
                 </div>

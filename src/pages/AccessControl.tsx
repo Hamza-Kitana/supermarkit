@@ -75,7 +75,10 @@ export default function AccessControl() {
       if (cashierPassword.trim()) {
         updateCashierPassword(editingCashierId, cashierPassword.trim());
       }
-      toast({ title: tx("Cashier updated ✓", "تم تحديث الكاشير ✓") });
+      toast({
+        title: tx("Cashier updated ✓", "تم تحديث الكاشير ✓"),
+        description: tx("Name/password updated successfully.", "تم تحديث الاسم/كلمة المرور بنجاح."),
+      });
     } else {
       addCashier(trimmed, cashierPassword.trim() || "000");
       toast({ title: tx("Cashier added ✓", "تمت إضافة الكاشير ✓") });
@@ -89,6 +92,12 @@ export default function AccessControl() {
     setEditingCashierId(id);
     setCashierName(name);
     setCashierPassword(password || "000");
+  };
+
+  const cancelCashierEdit = () => {
+    setEditingCashierId(null);
+    setCashierName("");
+    setCashierPassword("000");
   };
 
   const handleDeleteCashier = (id: string) => {
@@ -213,6 +222,11 @@ export default function AccessControl() {
             )}
           </p>
         </div>
+        {editingCashierId && (
+          <div className="rounded-xl border border-primary/40 bg-primary/5 px-3 py-2 text-xs">
+            {tx("Editing cashier now. Update name/password then press Save Cashier.", "أنت الآن تعدل كاشير. عدّل الاسم/كلمة المرور ثم اضغط حفظ الكاشير.")}
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="cashier-name">{tx("Cashier Name", "اسم الكاشير")}</Label>
@@ -235,11 +249,18 @@ export default function AccessControl() {
             className="text-left"
           />
         </div>
-        <Button className="w-full" type="button" onClick={handleSaveCashier}>
-          {editingCashierId
-            ? tx("Save Cashier", "حفظ الكاشير")
-            : tx("Add Cashier", "إضافة كاشير")}
-        </Button>
+        <div className="flex gap-2">
+          <Button className="w-full" type="button" onClick={handleSaveCashier}>
+            {editingCashierId
+              ? tx("Save Cashier", "حفظ الكاشير")
+              : tx("Add Cashier", "إضافة كاشير")}
+          </Button>
+          {editingCashierId && (
+            <Button className="w-full" type="button" variant="outline" onClick={cancelCashierEdit}>
+              {tx("Cancel Edit", "إلغاء التعديل")}
+            </Button>
+          )}
+        </div>
 
         <div className="space-y-2">
           <Label>{tx("Existing Cashiers", "الكاشيرية الحاليين")}</Label>

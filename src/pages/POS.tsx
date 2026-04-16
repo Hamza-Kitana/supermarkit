@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/hooks/useProducts";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import ReturnDialog from "@/components/ReturnDialog";
-import { createInvoice } from "@/lib/localDb";
+import { addCustomer, createInvoice, getCustomers, subscribeDbChanges, type LocalCustomer } from "@/lib/localDb";
 import { useCurrency } from "@/hooks/useCurrency";
 import { useLanguage } from "@/hooks/useLanguage";
 import { ShoppingBasket, Trash2, Plus, Minus, RotateCcw, Search, AlertTriangle } from "lucide-react";
@@ -42,7 +42,18 @@ export default function POS() {
   const [pendingSaleType, setPendingSaleType] = useState<"retail" | "wholesale" | null>(null);
   const [isCredit, setIsCredit] = useState(false);
   const [customerName, setCustomerName] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "visa">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "visa" | "wallet">("cash");
+  const [customers, setCustomers] = useState<LocalCustomer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+
+  useEffect(() => {
+    const refresh = () => setCustomers(getCustomers());
+    refresh();
+    return subscribeDbChanges(refresh);
+  }, []);
 
   const filteredProducts = useMemo(() => {
     if (!search) return products;
@@ -184,7 +195,7 @@ export default function POS() {
         return;
       }
     } else {
-      if (!customerName.trim()) {
+      if (!selectedCustomerId && !customerName.trim()) {
         toast({ title: tx("Customer name is required for credit sale", "اسم الزبون مطلوب للبيع بالدين"), variant: "destructive" });
         return;
       }
@@ -201,6 +212,14 @@ export default function POS() {
         subtotal: (saleType === "retail" ? item.product.retail_price : item.product.wholesale_price) * item.quantity,
       }));
 
+      const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
+      const finalCustomerName = isCredit
+        ? (selectedCustomer?.name ?? customerName.trim())
+        : null;
+      const finalCustomerPhone = isCredit
+        ? (selectedCustomer?.phone ?? null)
+        : null;
+
       createInvoice({
         cashier_id: activeCashierId,
         cashier_name: activeCashierName,
@@ -209,7 +228,8 @@ export default function POS() {
         paid: isCredit ? 0 : paid,
         change_amount: isCredit ? 0 : change,
         is_credit: isCredit,
-        customer_name: isCredit ? customerName.trim() : null,
+        customer_name: finalCustomerName,
+        customer_phone: finalCustomerPhone,
         payment_method: isCredit ? "cash" : paymentMethod,
         items,
       });
@@ -232,7 +252,11 @@ export default function POS() {
       setCart([]);
       setPaidAmount("");
       setCustomerName("");
+      setSelectedCustomerId("");
       setIsCredit(false);
+      setShowAddCustomer(false);
+      setNewCustomerName("");
+      setNewCustomerPhone("");
       setPaymentMethod("cash");
     } catch (err: any) {
       toast({ title: tx("Error", "خطأ"), description: err.message, variant: "destructive" });
@@ -407,6 +431,82 @@ export default function POS() {
             <span className="text-primary">{formatMoney(total)}</span>
           </div>
           <div className="space-y-2">
+            <Button
+              type="button"
+              variant={isCredit ? "default" : "outline"}
+              className="rounded-xl gap-2 w-full"
+              onClick={() => setIsCredit((prev) => !prev)}
+            >
+              {isCredit ? tx("Credit Sale Active", "البيع بالدين مفعّل") : tx("Mark as Credit Sale", "تسجيلها كبيع دين")}
+            </Button>
+            {isCredit && (
+              <div className="space-y-2">
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => {
+                    setSelectedCustomerId(e.target.value);
+                    const chosen = customers.find((c) => c.id === e.target.value);
+                    setCustomerName(chosen?.name ?? "");
+                  }}
+                  className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">{tx("Choose customer for credit", "اختر زبون الدين")}</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.phone ? `(${c.phone})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full rounded-xl"
+                  onClick={() => setShowAddCustomer((prev) => !prev)}
+                >
+                  {showAddCustomer ? tx("Cancel add customer", "إلغاء إضافة زبون") : tx("Add new customer", "إضافة زبون جديد")}
+                </Button>
+                {showAddCustomer && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input
+                      placeholder={tx("Customer name", "اسم الزبون")}
+                      value={newCustomerName}
+                      onChange={(e) => setNewCustomerName(e.target.value)}
+                      className="rounded-xl"
+                    />
+                    <Input
+                      placeholder={tx("Customer phone", "رقم الهاتف")}
+                      value={newCustomerPhone}
+                      onChange={(e) => setNewCustomerPhone(e.target.value)}
+                      className="rounded-xl"
+                      dir="ltr"
+                    />
+                    <Button
+                      type="button"
+                      className="sm:col-span-2 rounded-xl"
+                      onClick={() => {
+                        if (!newCustomerName.trim() || !newCustomerPhone.trim()) {
+                          toast({ title: tx("Enter customer name and phone", "أدخل اسم الزبون ورقم الهاتف"), variant: "destructive" });
+                          return;
+                        }
+                        const created = addCustomer(newCustomerName.trim(), newCustomerPhone.trim());
+                        if (created) {
+                          setSelectedCustomerId(created.id);
+                          setCustomerName(created.name);
+                        }
+                        setShowAddCustomer(false);
+                        setNewCustomerName("");
+                        setNewCustomerPhone("");
+                        toast({ title: tx("Customer saved ✓", "تم حفظ الزبون ✓") });
+                      }}
+                    >
+                      {tx("Save customer", "حفظ الزبون")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
               {tx("Payment Method (before complete sale)", "طريقة الدفع (قبل إتمام البيع)")}
             </p>
@@ -437,25 +537,20 @@ export default function POS() {
               >
                 {tx("Visa", "فيزا")}
               </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod("wallet")}
+                className={cn(
+                  "flex-1 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all",
+                  !isCredit && paymentMethod === "wallet"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                disabled={isCredit}
+              >
+                {tx("Wallet", "محفظة")}
+              </button>
             </div>
-          </div>
-          <div className="space-y-2">
-            <Button
-              type="button"
-              variant={isCredit ? "default" : "outline"}
-              className="rounded-xl gap-2 w-full"
-              onClick={() => setIsCredit((prev) => !prev)}
-            >
-              {isCredit ? tx("Credit Sale Active", "البيع بالدين مفعّل") : tx("Mark as Credit Sale", "تسجيلها كبيع دين")}
-            </Button>
-            {isCredit && (
-              <Input
-                placeholder={tx("Customer name is required", "اسم الزبون مطلوب")}
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className="rounded-xl"
-              />
-            )}
           </div>
           <Input
             type="number"

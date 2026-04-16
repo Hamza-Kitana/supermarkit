@@ -143,6 +143,11 @@ export default function CreditPage() {
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Customer", "الزبون")}</p>
                   <p className="font-bold">{selectedInvoice.customer_name}</p>
+                  {selectedInvoice.customer_phone && (
+                    <p className="text-xs text-muted-foreground" dir="ltr">
+                      {selectedInvoice.customer_phone}
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Purchase Time", "وقت الشراء")}</p>

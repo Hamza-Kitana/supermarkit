@@ -118,10 +118,11 @@ export default function Dashboard() {
       const returned = invoice.returned_amount ?? 0;
       const net = Math.max(0, invoice.total - returned);
       if (invoice.payment_method === "visa") acc.visa += net;
+      else if (invoice.payment_method === "wallet") acc.wallet += net;
       else acc.cash += net;
       return acc;
     },
-    { cash: 0, visa: 0 },
+    { cash: 0, visa: 0, wallet: 0 },
   );
   const totalOutstandingCredit = filteredInvoices.reduce((sum, invoice) => {
     if (!invoice.is_credit) return sum;
@@ -207,6 +208,8 @@ export default function Dashboard() {
           ? tx("Credit", "دين")
           : inv.payment_method === "visa"
             ? tx("Visa", "فيزا")
+            : inv.payment_method === "wallet"
+              ? tx("Wallet", "محفظة")
             : tx("Cash", "كاش");
         const statusLabel =
           (inv.returned_amount ?? 0) > 0 && !inv.is_return
@@ -258,6 +261,7 @@ export default function Dashboard() {
   <p>${tx("Invoices Count", "عدد الفواتير")}: ${totalInvoices}</p>
   <p>${tx("Cash", "كاش")}: ${formatMoney(paymentTotals.cash)}</p>
   <p>${tx("Visa", "فيزا")}: ${formatMoney(paymentTotals.visa)}</p>
+  <p>${tx("Wallet", "محفظة")}: ${formatMoney(paymentTotals.wallet)}</p>
 
   <h2>${tx("Invoices", "الفواتير")}</h2>
   <table>
@@ -371,6 +375,12 @@ export default function Dashboard() {
               <span className="font-medium">{tx("Visa", "فيزا")}</span>
               <span className="font-semibold text-foreground">
                 {formatMoney(paymentTotals.visa)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-medium">{tx("Wallet", "محفظة")}</span>
+              <span className="font-semibold text-foreground">
+                {formatMoney(paymentTotals.wallet)}
               </span>
             </div>
           </div>

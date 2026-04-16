@@ -1,7 +1,7 @@
 export type SaleType = "retail" | "wholesale";
 export type CurrencyCode = "JOD" | "USD";
 export type LanguageCode = "en" | "ar";
-export type PaymentMethod = "cash" | "visa";
+export type PaymentMethod = "cash" | "visa" | "wallet";
 
 export interface LocalProduct {
   id: string;
@@ -35,6 +35,13 @@ export interface LocalCategory {
   created_at: string;
 }
 
+export interface LocalCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  created_at: string;
+}
+
 export interface LocalInvoice {
   id: string;
   cashier_id: string;
@@ -47,6 +54,7 @@ export interface LocalInvoice {
   change_amount: number;
   is_credit: boolean;
   customer_name: string | null;
+  customer_phone: string | null;
   payment_method: PaymentMethod;
   is_return: boolean;
   deleted_at: string | null;
@@ -71,6 +79,7 @@ type LocalState = {
   products: LocalProduct[];
   cashiers: LocalCashier[];
   categories: LocalCategory[];
+  customers: LocalCustomer[];
   invoices: LocalInvoice[];
   invoice_items: LocalInvoiceItem[];
   settings: {
@@ -90,6 +99,7 @@ const defaultState: LocalState = {
   products: [],
   cashiers: [],
   categories: [],
+  customers: [],
   invoices: [],
   invoice_items: [],
   settings: {
@@ -136,6 +146,14 @@ function readState(): LocalState {
           }))
         : [],
       categories: (parsed as any).categories ?? [],
+      customers: (parsed as any).customers
+        ? (parsed as any).customers.map((c: any) => ({
+            id: String(c.id),
+            name: String(c.name ?? "").trim() || "Customer",
+            phone: String(c.phone ?? "").trim(),
+            created_at: c.created_at ?? new Date().toISOString(),
+          }))
+        : [],
       invoices: (parsed.invoices ?? []).map((invoice) => ({
         ...invoice,
         returned_amount: (invoice as LocalInvoice).returned_amount ?? 0,
@@ -144,6 +162,7 @@ function readState(): LocalState {
         cashier_name: (invoice as LocalInvoice).cashier_name
           ?? (invoice as any).cashier_name
           ?? String((invoice as any).cashier_id ?? "Cashier"),
+        customer_phone: (invoice as LocalInvoice).customer_phone ?? null,
         payment_method: (invoice as LocalInvoice).payment_method ?? "cash",
       })),
       invoice_items: (parsed.invoice_items ?? []).map((item) => ({
@@ -252,6 +271,35 @@ export function getCategories() {
     .categories
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getCustomers() {
+  return readState()
+    .customers
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function addCustomer(name: string, phone: string) {
+  const trimmedName = name.trim();
+  const trimmedPhone = phone.trim();
+  if (!trimmedName || !trimmedPhone) return;
+  const state = readState();
+  const exists = state.customers.find(
+    (c) =>
+      c.name.toLowerCase() === trimmedName.toLowerCase()
+      && c.phone === trimmedPhone,
+  );
+  if (exists) return exists;
+  const customer: LocalCustomer = {
+    id: newId(),
+    name: trimmedName,
+    phone: trimmedPhone,
+    created_at: new Date().toISOString(),
+  };
+  state.customers.push(customer);
+  writeState(state);
+  return customer;
 }
 
 export function addCategory(name: string) {
@@ -378,6 +426,7 @@ export function createInvoice(params: {
   change_amount: number;
   is_credit: boolean;
   customer_name?: string | null;
+  customer_phone?: string | null;
   payment_method: PaymentMethod;
   items: Array<{
     product_id: string;
@@ -404,6 +453,7 @@ export function createInvoice(params: {
     change_amount: params.change_amount,
     is_credit: params.is_credit,
     customer_name: params.customer_name ?? null,
+    customer_phone: params.customer_phone ?? null,
     payment_method: params.payment_method,
     is_return: false,
     deleted_at: null,
