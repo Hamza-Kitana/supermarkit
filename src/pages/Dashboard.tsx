@@ -9,7 +9,7 @@ import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  DollarSign, TrendingUp, Package, AlertTriangle, ShoppingCart,
+  DollarSign, TrendingUp, Package, AlertTriangle, ShoppingCart, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +113,9 @@ export default function Dashboard() {
     const net = Math.max(0, invoice.total - returned);
     return sum + net;
   }, 0);
+  const totalReturns = filteredInvoices.reduce((sum, invoice) => {
+    return sum + (invoice.returned_amount ?? 0);
+  }, 0);
 
   const paymentTotals = filteredInvoices.reduce(
     (acc, invoice) => {
@@ -168,6 +171,57 @@ export default function Dashboard() {
     });
     return Object.values(map).sort((a, b) => b.qty - a.qty).slice(0, 10);
   }, [allItems, filteredInvoices]);
+
+  const cashierStats = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        cashierName: string;
+        invoicesCount: number;
+        netSales: number;
+        creditInvoicesCount: number;
+        creditNetAmount: number;
+        cashAmount: number;
+        visaAmount: number;
+        walletAmount: number;
+        returnedInvoicesCount: number;
+      }
+    >();
+
+    for (const inv of filteredInvoices) {
+      const key = inv.cashier_id || inv.cashier_name || "unknown-cashier";
+      const current = map.get(key) ?? {
+        cashierName: inv.cashier_name || tx("Unknown", "غير معروف"),
+        invoicesCount: 0,
+        netSales: 0,
+        creditInvoicesCount: 0,
+        creditNetAmount: 0,
+        cashAmount: 0,
+        visaAmount: 0,
+        walletAmount: 0,
+        returnedInvoicesCount: 0,
+      };
+      const returned = inv.returned_amount ?? 0;
+      const net = Math.max(0, inv.total - returned);
+      current.invoicesCount += 1;
+      current.netSales += net;
+      if (returned > 0) current.returnedInvoicesCount += 1;
+
+      if (inv.is_credit) {
+        current.creditInvoicesCount += 1;
+        current.creditNetAmount += net;
+      } else if (inv.payment_method === "visa") {
+        current.visaAmount += net;
+      } else if (inv.payment_method === "wallet") {
+        current.walletAmount += net;
+      } else {
+        current.cashAmount += net;
+      }
+      map.set(key, current);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.netSales - a.netSales);
+  }, [filteredInvoices, tx]);
 
   const periods = [
     { key: "day" as const, label: tx("Today", "اليوم") },
@@ -418,6 +472,15 @@ export default function Dashboard() {
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-warning/10 flex items-center justify-center">
+              <RotateCcw className="w-5 h-5 text-warning" />
+            </div>
+            <span className="text-sm text-muted-foreground">{tx("Total Returns", "إجمالي الإرجاعات")}</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground">{formatMoney(totalReturns)}</p>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center">
               <ShoppingCart className="w-5 h-5 text-info" />
             </div>
@@ -493,6 +556,55 @@ export default function Dashboard() {
               ))
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="glass-card rounded-2xl p-5">
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+          <ShoppingCart className="w-5 h-5 text-primary" />
+          {tx("Cashier Performance", "أداء الكاشيرية")}
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-right p-2 font-semibold">{tx("Cashier", "الكاشير")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Invoices", "الفواتير")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Net Sales", "صافي المبيعات")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Credit", "الدين")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Cash", "كاش")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Visa", "فيزا")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Wallet", "محفظة")}</th>
+                <th className="text-right p-2 font-semibold">{tx("Returns", "مرتجعات")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cashierStats.map((c) => (
+                <tr key={c.cashierName} className="border-b border-border/40 hover:bg-muted/20">
+                  <td className="p-2 font-semibold">{c.cashierName}</td>
+                  <td className="p-2">{c.invoicesCount}</td>
+                  <td className="p-2 font-bold text-primary">{formatMoney(c.netSales)}</td>
+                  <td className="p-2">
+                    <div className="text-xs">
+                      <p>{c.creditInvoicesCount} {tx("inv", "فاتورة")}</p>
+                      <p className="text-muted-foreground">{formatMoney(c.creditNetAmount)}</p>
+                    </div>
+                  </td>
+                  <td className="p-2">{formatMoney(c.cashAmount)}</td>
+                  <td className="p-2">{formatMoney(c.visaAmount)}</td>
+                  <td className="p-2">{formatMoney(c.walletAmount)}</td>
+                  <td className="p-2">{c.returnedInvoicesCount}</td>
+                </tr>
+              ))}
+              {cashierStats.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="p-4 text-center text-muted-foreground">
+                    {tx("No cashier activity in this period", "لا يوجد نشاط كاشيرية في هذه الفترة")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

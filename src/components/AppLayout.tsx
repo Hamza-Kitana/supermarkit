@@ -8,7 +8,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
-import { useCreditEnabled } from "@/hooks/useCreditEnabled";
 
 const navItems = [
   { path: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, roles: ["admin", "super_admin"] },
@@ -24,13 +23,11 @@ type NavLabelKey = (typeof navItems)[number]["labelKey"];
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { role, signOut } = useAuth();
   const { t, language, setLanguage, isArabic } = useLanguage();
-  const creditEnabled = useCreditEnabled();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const filteredNav = navItems
     .filter((item) => role && item.roles.includes(role))
-    .filter((item) => (item.path === "/credit" ? creditEnabled : true))
     .sort((a, b) => {
       if (role !== "cashier") return 0;
       const cashierOrder = ["/cashier", "/invoices", "/credit"];
