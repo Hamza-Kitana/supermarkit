@@ -5,6 +5,7 @@ import {
   getInvoiceReturnSummary,
   getReturnPassword,
   getReturnableInvoices,
+  notifyLocalDbChanged,
   processInvoiceReturn,
 } from "@/lib/localDb";
 import {
@@ -81,6 +82,7 @@ export default function ReturnDialog({ open, onOpenChange }: Props) {
         });
       }
 
+      notifyLocalDbChanged();
       toast({ title: tx("Return processed successfully ✓", "تم الإرجاع بنجاح ✓") });
       handleClose();
     } catch (err: any) {

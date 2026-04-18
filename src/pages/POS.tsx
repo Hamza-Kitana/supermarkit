@@ -19,7 +19,9 @@ import {
   addCustomer,
   createInvoice,
   getCustomers,
+  notifyLocalDbChanged,
   recordPosCartExclusion,
+  recordPosCartExclusionsBatch,
   removeLastPosCartExclusionForProduct,
   subscribeDbChanges,
   type LocalCustomer,
@@ -230,20 +232,22 @@ export default function POS() {
     const cashierName =
       role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
 
-    for (const line of cart) {
-      if (!line.included) continue;
-      const unitPrice =
-        saleType === "retail" ? line.product.retail_price : line.product.wholesale_price;
-      recordPosCartExclusion({
-        cashier_id: cashierId,
-        cashier_name: cashierName,
-        product_id: line.product.id,
-        product_name: line.product.name,
-        quantity: line.quantity,
-        sale_type: saleType,
-        unit_price: unitPrice,
+    const toLog = cart
+      .filter((line) => line.included)
+      .map((line) => {
+        const unitPrice =
+          saleType === "retail" ? line.product.retail_price : line.product.wholesale_price;
+        return {
+          cashier_id: cashierId,
+          cashier_name: cashierName,
+          product_id: line.product.id,
+          product_name: line.product.name,
+          quantity: line.quantity,
+          sale_type: saleType,
+          unit_price: unitPrice,
+        };
       });
-    }
+    recordPosCartExclusionsBatch(toLog);
 
     setCart((prev) => prev.map((i) => ({ ...i, included: false })));
     setFullReturnConfirmOpen(false);
@@ -294,6 +298,7 @@ export default function POS() {
         setNewCustomerPhone("");
         setPaymentMethod("cash");
         setCashPayCurrency("JOD");
+        notifyLocalDbChanged();
       } finally {
         setProcessing(false);
       }

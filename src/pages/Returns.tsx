@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import {
   getInvoicesWithReturns,
@@ -38,6 +39,7 @@ type FeedRow =
   | { kind: "cart"; at: string; ev: LocalPosCartExclusion };
 
 export default function Returns() {
+  const location = useLocation();
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
   const { toast } = useToast();
@@ -53,6 +55,11 @@ export default function Returns() {
     refresh();
     return subscribeDbChanges(refresh);
   }, []);
+
+  useEffect(() => {
+    setInvoices(getInvoicesWithReturns());
+    setCartExclusions(getPosCartExclusions());
+  }, [location.pathname]);
 
   /** Full invoice lines (entire “cart” / sale), same source as Invoices page */
   const allItemsByInvoice = useMemo(() => {

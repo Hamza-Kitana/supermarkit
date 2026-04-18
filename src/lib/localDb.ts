@@ -261,6 +261,11 @@ export function subscribeDbChanges(callback: () => void) {
   };
 }
 
+/** Re-notify subscribers (no disk write). Use after UI-only actions that should still refresh lists. */
+export function notifyLocalDbChanged() {
+  window.dispatchEvent(new Event(DB_EVENT));
+}
+
 export function getProducts() {
   return readState()
     .products
@@ -794,14 +799,33 @@ export function recordPosCartExclusion(params: {
   sale_type: SaleType;
   unit_price: number;
 }) {
+  recordPosCartExclusionsBatch([params]);
+}
+
+/** One atomic write for multiple cart-exclusion rows (avoids missed UI updates between writes). */
+export function recordPosCartExclusionsBatch(
+  lines: Array<{
+    cashier_id: string;
+    cashier_name: string;
+    product_id: string;
+    product_name: string;
+    quantity: number;
+    sale_type: SaleType;
+    unit_price: number;
+  }>,
+) {
+  if (lines.length === 0) return;
   const state = readState();
-  const line_value = Math.max(0, params.unit_price * params.quantity);
-  state.pos_cart_exclusions.push({
-    id: newId(),
-    created_at: new Date().toISOString(),
-    ...params,
-    line_value,
-  });
+  const now = new Date().toISOString();
+  for (const params of lines) {
+    const line_value = Math.max(0, params.unit_price * params.quantity);
+    state.pos_cart_exclusions.push({
+      id: newId(),
+      created_at: now,
+      ...params,
+      line_value,
+    });
+  }
   writeState(state);
 }
 
