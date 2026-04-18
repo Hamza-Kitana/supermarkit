@@ -25,6 +25,7 @@ const dict = {
     enableCredit: "Enable credit sales",
     disableCredit: "Disable credit sales",
     creditPage: "Credit",
+    returnsPage: "Returns",
   },
   ar: {
     dashboard: "لوحة التحكم",
@@ -44,6 +45,7 @@ const dict = {
     enableCredit: "تفعيل البيع بالدين",
     disableCredit: "إلغاء البيع بالدين",
     creditPage: "الدين",
+    returnsPage: "المرتجعات",
   },
 } as const;
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +20,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type InvoiceItem = LocalInvoiceItem;
 
@@ -30,13 +37,170 @@ export default function Invoices() {
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
   const [search, setSearch] = useState("");
+  const [cashierFilter, setCashierFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
+  const [saleTypeFilter, setSaleTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [datePreset, setDatePreset] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dayValue, setDayValue] = useState("");
+  const [weekValue, setWeekValue] = useState("");
+  const [monthValue, setMonthValue] = useState("");
+  const [yearValue, setYearValue] = useState(String(new Date().getFullYear()));
   const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, InvoiceItem[]>>({});
 
-  const filtered = invoices.filter((inv) => {
-    if (!search) return true;
-    return inv.id.includes(search) || inv.sale_type.includes(search);
-  });
+  const cashiers = useMemo(() => {
+    return Array.from(new Set(invoices.map((inv) => inv.cashier_name).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, "en")
+    );
+  }, [invoices]);
+
+  const filtered = useMemo(() => {
+    return invoices.filter((inv) => {
+      const query = search.trim().toLowerCase();
+      if (query) {
+        const idMatch = inv.id.toLowerCase().includes(query);
+        const saleTypeMatch = inv.sale_type.toLowerCase().includes(query);
+        const cashierMatch = inv.cashier_name.toLowerCase().includes(query);
+        const paymentMatch = inv.payment_method.toLowerCase().includes(query);
+        const customerMatch = (inv.customer_name ?? "").toLowerCase().includes(query);
+        if (!idMatch && !saleTypeMatch && !cashierMatch && !paymentMatch && !customerMatch) {
+          return false;
+        }
+      }
+
+      if (cashierFilter !== "all" && inv.cashier_name !== cashierFilter) {
+        return false;
+      }
+
+      if (paymentFilter !== "all") {
+        if (paymentFilter === "credit" && !inv.is_credit) {
+          return false;
+        }
+        if (paymentFilter !== "credit" && inv.payment_method !== paymentFilter) {
+          return false;
+        }
+      }
+
+      if (saleTypeFilter !== "all" && inv.sale_type !== saleTypeFilter) {
+        return false;
+      }
+
+      if (statusFilter !== "all") {
+        const hasPartialReturn = (inv.returned_amount ?? 0) > 0 && !inv.is_return;
+        if (statusFilter === "completed" && (inv.is_return || hasPartialReturn)) {
+          return false;
+        }
+        if (statusFilter === "partial_returned" && !hasPartialReturn) {
+          return false;
+        }
+        if (statusFilter === "returned" && !inv.is_return) {
+          return false;
+        }
+      }
+
+      const createdAt = new Date(inv.created_at);
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        if (createdAt < fromDate) {
+          return false;
+        }
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (createdAt > toDate) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [invoices, search, cashierFilter, paymentFilter, saleTypeFilter, statusFilter, dateFrom, dateTo]);
+
+  const toInputDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const getWeekRange = (week: string) => {
+    if (!week.includes("-W")) return null;
+    const [yearPart, weekPart] = week.split("-W");
+    const year = Number(yearPart);
+    const weekNo = Number(weekPart);
+    if (!year || !weekNo) return null;
+    const jan4 = new Date(year, 0, 4);
+    const jan4Day = (jan4.getDay() + 6) % 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - jan4Day + (weekNo - 1) * 7);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { from: monday, to: sunday };
+  };
+
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>([new Date().getFullYear()]);
+    invoices.forEach((inv) => years.add(new Date(inv.created_at).getFullYear()));
+    return Array.from(years).sort((a, b) => b - a);
+  }, [invoices]);
+
+  useEffect(() => {
+    const now = new Date();
+    const from = new Date(now);
+    const to = new Date(now);
+
+    if (datePreset === "all") {
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    if (datePreset === "custom") return;
+
+    if (datePreset === "day") {
+      setDayValue(toInputDate(now));
+      setDateFrom(toInputDate(now));
+      setDateTo(toInputDate(now));
+      return;
+    }
+    if (datePreset === "week") {
+      const weekDay = (now.getDay() + 6) % 7;
+      from.setDate(now.getDate() - weekDay);
+      const weekNo = Math.ceil((((from.getTime() - new Date(from.getFullYear(), 0, 1).getTime()) / 86400000) + new Date(from.getFullYear(), 0, 1).getDay() + 1) / 7);
+      setWeekValue(`${from.getFullYear()}-W${String(weekNo).padStart(2, "0")}`);
+      setDateFrom(toInputDate(from));
+      setDateTo(toInputDate(to));
+      return;
+    }
+    if (datePreset === "month") {
+      setMonthValue(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+      from.setDate(1);
+      setDateFrom(toInputDate(from));
+      setDateTo(toInputDate(to));
+      return;
+    }
+    if (datePreset === "year") {
+      setYearValue(String(now.getFullYear()));
+      from.setMonth(0, 1);
+      setDateFrom(toInputDate(from));
+      setDateTo(toInputDate(to));
+    }
+  }, [datePreset]);
+
+  const resetFilters = () => {
+    setSearch("");
+    setCashierFilter("all");
+    setPaymentFilter("all");
+    setSaleTypeFilter("all");
+    setStatusFilter("all");
+    setDatePreset("all");
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const deleteInvoice = async (id: string) => {
     if (role !== "super_admin") {
@@ -69,9 +233,187 @@ export default function Invoices() {
 
   return (
     <div className="space-y-4" dir={isArabic ? "rtl" : "ltr"}>
-      <div className="relative max-w-md">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder={tx("Search by invoice ID...", "بحث برقم الفاتورة...")} value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10 rounded-xl" dir="ltr" />
+      <div className="glass-card rounded-2xl p-4 space-y-3">
+        <div className="relative w-full">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder={tx("Search by invoice ID, cashier, customer, payment...", "بحث برقم الفاتورة أو الكاشير أو الزبون أو الدفع...")}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pr-10 rounded-xl"
+            dir="ltr"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-2">
+          <Select value={cashierFilter} onValueChange={setCashierFilter}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={tx("Cashier", "الكاشير")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tx("All cashiers", "كل الكاشير")}</SelectItem>
+              {cashiers.map((cashier) => (
+                <SelectItem key={cashier} value={cashier}>
+                  {cashier}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={tx("Payment", "الدفع")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tx("All payments", "كل طرق الدفع")}</SelectItem>
+              <SelectItem value="cash">{tx("Cash", "كاش")}</SelectItem>
+              <SelectItem value="visa">{tx("Visa", "فيزا")}</SelectItem>
+              <SelectItem value="wallet">{tx("Wallet", "محفظة")}</SelectItem>
+              <SelectItem value="credit">{tx("Credit", "دين")}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={saleTypeFilter} onValueChange={setSaleTypeFilter}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={tx("Sale type", "نوع البيع")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tx("All sale types", "كل أنواع البيع")}</SelectItem>
+              <SelectItem value="retail">{tx("Retail", "مفرق")}</SelectItem>
+              <SelectItem value="wholesale">{tx("Wholesale", "جملة")}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={tx("Status", "الحالة")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tx("All statuses", "كل الحالات")}</SelectItem>
+              <SelectItem value="completed">{tx("Completed", "مكتمل")}</SelectItem>
+              <SelectItem value="partial_returned">{tx("Partially Returned", "مرتجع جزئي")}</SelectItem>
+              <SelectItem value="returned">{tx("Returned", "مُرجع")}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={datePreset} onValueChange={setDatePreset}>
+            <SelectTrigger className="rounded-xl">
+              <SelectValue placeholder={tx("Date range", "الفترة الزمنية")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tx("All time", "كل الوقت")}</SelectItem>
+              <SelectItem value="day">{tx("Today", "اليوم")}</SelectItem>
+              <SelectItem value="week">{tx("This week", "هذا الأسبوع")}</SelectItem>
+              <SelectItem value="month">{tx("This month", "هذا الشهر")}</SelectItem>
+              <SelectItem value="year">{tx("This year", "هذه السنة")}</SelectItem>
+              <SelectItem value="custom">{tx("Custom range", "فترة مخصصة")}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {datePreset === "custom" && (
+            <>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="rounded-xl"
+                aria-label={tx("From date", "من تاريخ")}
+              />
+
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="rounded-xl"
+                aria-label={tx("To date", "إلى تاريخ")}
+              />
+            </>
+          )}
+
+          {datePreset === "day" && (
+            <Input
+              type="date"
+              value={dayValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                setDayValue(value);
+                setDateFrom(value);
+                setDateTo(value);
+              }}
+              className="rounded-xl"
+              aria-label={tx("Pick day", "اختر يوم")}
+            />
+          )}
+
+          {datePreset === "week" && (
+            <Input
+              type="week"
+              value={weekValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                setWeekValue(value);
+                const range = getWeekRange(value);
+                if (!range) return;
+                setDateFrom(toInputDate(range.from));
+                setDateTo(toInputDate(range.to));
+              }}
+              className="rounded-xl"
+              aria-label={tx("Pick week", "اختر أسبوع")}
+            />
+          )}
+
+          {datePreset === "month" && (
+            <Input
+              type="month"
+              value={monthValue}
+              onChange={(e) => {
+                const value = e.target.value;
+                setMonthValue(value);
+                const [year, month] = value.split("-").map(Number);
+                if (!year || !month) return;
+                const start = new Date(year, month - 1, 1);
+                const end = new Date(year, month, 0);
+                setDateFrom(toInputDate(start));
+                setDateTo(toInputDate(end));
+              }}
+              className="rounded-xl"
+              aria-label={tx("Pick month", "اختر شهر")}
+            />
+          )}
+
+          {datePreset === "year" && (
+            <Select
+              value={yearValue}
+              onValueChange={(value) => {
+                setYearValue(value);
+                const year = Number(value);
+                if (!year) return;
+                setDateFrom(`${year}-01-01`);
+                setDateTo(`${year}-12-31`);
+              }}
+            >
+              <SelectTrigger className="rounded-xl">
+                <SelectValue placeholder={tx("Pick year", "اختر سنة")} />
+              </SelectTrigger>
+              <SelectContent>
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={String(year)}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {tx("Filtered invoices:", "الفواتير بعد الفلترة:")} <span className="font-semibold text-foreground">{filtered.length}</span>
+          </p>
+          <Button variant="outline" className="rounded-xl" onClick={resetFilters}>
+            {tx("Clear filters", "مسح الفلاتر")}
+          </Button>
+        </div>
       </div>
 
       <div className="glass-card rounded-2xl overflow-hidden">

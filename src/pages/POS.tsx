@@ -16,22 +16,32 @@ import {
 } from "@/components/ui/alert-dialog";
 import ReturnDialog from "@/components/ReturnDialog";
 import { addCustomer, createInvoice, getCustomers, subscribeDbChanges, type LocalCustomer } from "@/lib/localDb";
+import { CASH_PAY_OPTIONS, cashPayLabel } from "@/lib/cashPayCurrencies";
 import { useCurrency } from "@/hooks/useCurrency";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useCreditEnabled } from "@/hooks/useCreditEnabled";
-import { ShoppingBasket, Trash2, Plus, Minus, RotateCcw, Search, AlertTriangle } from "lucide-react";
+import { ShoppingBasket, RotateCcw, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CartItem {
   product: Product;
   quantity: number;
+  /** If false: still listed on the ticket but not counted in total or invoice */
+  included: boolean;
 }
 
 export default function POS() {
   const { user, role } = useAuth();
   const { products } = useProducts();
   const { toast } = useToast();
-  const { formatMoney, currency } = useCurrency();
+  const { formatMoney, currency, getJodPerUnit, formatCashPay } = useCurrency();
   const { tx, isArabic } = useLanguage();
   const creditEnabled = useCreditEnabled();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -50,6 +60,8 @@ export default function POS() {
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  /** Cash denomination for the paid-amount field (default: JOD) */
+  const [cashPayCurrency, setCashPayCurrency] = useState<string>("JOD");
 
   useEffect(() => {
     const refresh = () => setCustomers(getCustomers());
@@ -66,22 +78,77 @@ export default function POS() {
     }
   }, [creditEnabled, isCredit]);
 
+  useEffect(() => {
+    if (isCredit) setCashPayCurrency("JOD");
+  }, [isCredit]);
+
+  useEffect(() => {
+    if (currency === "USD") setCashPayCurrency("USD");
+    else setCashPayCurrency("JOD");
+  }, [currency]);
+
+  useEffect(() => {
+    setPaidAmount("");
+  }, [cart, saleType]);
+
   const filteredProducts = useMemo(() => {
     if (!search) return products;
     return products.filter((p) => p.name.includes(search));
   }, [products, search]);
 
+  const includedLines = useMemo(() => cart.filter((i) => i.included), [cart]);
+
   const total = useMemo(
-    () => cart.reduce((sum, item) => {
+    () => includedLines.reduce((sum, item) => {
       const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
       return sum + price * item.quantity;
     }, 0),
-    [cart, saleType]
+    [includedLines, saleType]
   );
 
-  const paid = parseFloat(paidAmount) || 0;
-  const effectivePaid = !isCredit && paymentMethod !== "cash" ? total : paid;
-  const change = Math.max(0, effectivePaid - total);
+  const jodPerUnitPay = useMemo(
+    () => (currency === "JOD" ? getJodPerUnit(cashPayCurrency) : 1),
+    [currency, cashPayCurrency, getJodPerUnit],
+  );
+
+  const totalInPayCurrency = useMemo(() => {
+    if (currency !== "JOD") return total;
+    if (cashPayCurrency === "JOD") return total;
+    if (jodPerUnitPay <= 0) return 0;
+    return total / jodPerUnitPay;
+  }, [currency, cashPayCurrency, total, jodPerUnitPay]);
+
+  const cashPayIsForeign = currency === "USD" || (currency === "JOD" && cashPayCurrency !== "JOD");
+
+  const paidInShopCurrency = useMemo(() => {
+    if (isCredit) return 0;
+    if (paymentMethod !== "cash") return total;
+    const empty = paidAmount.trim() === "";
+    if (currency !== "JOD") {
+      return empty ? total : Math.max(0, parseFloat(paidAmount) || 0);
+    }
+    if (cashPayCurrency === "JOD") {
+      return empty ? total : Math.max(0, parseFloat(paidAmount) || 0);
+    }
+    const rate = jodPerUnitPay;
+    const paidForeign = empty ? totalInPayCurrency : Math.max(0, parseFloat(paidAmount) || 0);
+    return paidForeign * rate;
+  }, [
+    isCredit,
+    paymentMethod,
+    paidAmount,
+    currency,
+    cashPayCurrency,
+    total,
+    jodPerUnitPay,
+    totalInPayCurrency,
+  ]);
+
+  const effectivePaid = !isCredit && paymentMethod !== "cash" ? total : isCredit ? 0 : paidInShopCurrency;
+  const change = !isCredit && paymentMethod === "cash" ? Math.max(0, paidInShopCurrency - total) : 0;
+
+  const changeInPayCurrency =
+    currency === "JOD" && cashPayCurrency !== "JOD" && jodPerUnitPay > 0 ? change / jodPerUnitPay : 0;
 
   const addToCart = (product: Product) => {
     const productWholesaleMin = Math.max(1, product.wholesale_min_qty || 1);
@@ -111,54 +178,18 @@ export default function POS() {
           return prev;
         }
         return prev.map((i) =>
-          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1, included: true } : i
         );
       }
       const initialQty = saleType === "wholesale" ? productWholesaleMin : 1;
-      return [...prev, { product, quantity: initialQty }];
+      return [...prev, { product, quantity: initialQty, included: true }];
     });
   };
 
-  const updateQty = (productId: string, delta: number) => {
-    setCart((prev) => {
-      const target = prev.find((i) => i.product.id === productId);
-      if (!target) return prev;
-
-      const nextQty = target.quantity + delta;
-      if (nextQty <= 0) {
-        return prev.filter((i) => i.product.id !== productId);
-      }
-
-      if (nextQty > target.product.stock) {
-        toast({
-          title: tx("Warning", "تنبيه"),
-          description: tx("Cannot add more than available stock", "لا يمكن إضافة أكثر من الكمية المتوفرة"),
-          variant: "destructive",
-        });
-        return prev;
-      }
-
-      if (saleType === "wholesale") {
-        const minQty = Math.max(1, target.product.wholesale_min_qty || 1);
-        if (nextQty < minQty) {
-          toast({
-            title: tx("Wholesale minimum required", "الحد الأدنى للجملة مطلوب"),
-            description: tx(
-              `Minimum wholesale quantity for ${target.product.name} is ${minQty}.`,
-              `الحد الأدنى للجملة لمنتج ${target.product.name} هو ${minQty}.`,
-            ),
-            variant: "destructive",
-          });
-          return prev;
-        }
-      }
-
-      return prev.map((i) => (i.product.id === productId ? { ...i, quantity: nextQty } : i));
-    });
-  };
-
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((i) => i.product.id !== productId));
+  const toggleCartLineIncluded = (productId: string) => {
+    setCart((prev) =>
+      prev.map((i) => (i.product.id === productId ? { ...i, included: !i.included } : i)),
+    );
   };
 
   const askSaleTypeChange = (nextType: "retail" | "wholesale") => {
@@ -177,6 +208,18 @@ export default function POS() {
 
   const checkout = async () => {
     if (!user || cart.length === 0) return;
+    const linesForSale = cart.filter((i) => i.included);
+    if (linesForSale.length === 0) {
+      toast({
+        title: tx("Nothing to sell", "لا يوجد شيء للبيع"),
+        description: tx(
+          "Turn on at least one line (tap a red row) or add products.",
+          "فعّل سطراً واحداً على الأقل (اضغط على السطر الأحمر) أو أضف منتجات.",
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
     const activeCashierId = user.cashierId ?? user.id;
     const activeCashierName =
       role === "super_admin"
@@ -185,7 +228,7 @@ export default function POS() {
           ? "admin"
           : user.displayName;
     if (!isCredit && saleType === "wholesale") {
-      const invalidItems = cart.filter((item) => item.quantity < item.product.wholesale_min_qty);
+      const invalidItems = linesForSale.filter((item) => item.quantity < item.product.wholesale_min_qty);
       if (invalidItems.length > 0) {
         const invalidNames = invalidItems
           .map((item) => `${item.product.name} (${item.product.wholesale_min_qty})`)
@@ -204,7 +247,7 @@ export default function POS() {
     if (!isCredit) {
       if (paymentMethod !== "cash") {
         // For card/wallet payments, no need to type paid amount.
-      } else if (paid < total) {
+      } else if (paidInShopCurrency + 1e-6 < total) {
         toast({ title: tx("Insufficient paid amount", "المبلغ المدفوع غير كافٍ"), variant: "destructive" });
         return;
       }
@@ -221,7 +264,7 @@ export default function POS() {
 
     setProcessing(true);
     try {
-      const items = cart.map((item) => ({
+      const items = linesForSale.map((item) => ({
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
@@ -244,7 +287,7 @@ export default function POS() {
         sale_type: saleType,
         total,
         paid: isCredit ? 0 : effectivePaid,
-        change_amount: isCredit ? 0 : change,
+        change_amount: isCredit ? 0 : Math.max(0, effectivePaid - total),
         is_credit: isCredit,
         customer_name: finalCustomerName,
         customer_phone: finalCustomerPhone,
@@ -262,8 +305,12 @@ export default function POS() {
               `الزبون: ${customerName.trim()} | المجموع: ${formatMoney(total)}`,
             )
           : tx(
-              `Total: ${formatMoney(total)} | Change: ${formatMoney(change)}`,
-              `المجموع: ${formatMoney(total)} | الباقي: ${formatMoney(change)}`,
+              currency === "JOD" && cashPayCurrency !== "JOD" && change > 0.0005
+                ? `Total: ${formatMoney(total)} | Change: ${formatMoney(change)} (${formatCashPay(changeInPayCurrency, cashPayCurrency)})`
+                : `Total: ${formatMoney(total)} | Change: ${formatMoney(change)}`,
+              currency === "JOD" && cashPayCurrency !== "JOD" && change > 0.0005
+                ? `المجموع: ${formatMoney(total)} | الباقي: ${formatMoney(change)} (${formatCashPay(changeInPayCurrency, cashPayCurrency)})`
+                : `المجموع: ${formatMoney(total)} | الباقي: ${formatMoney(change)}`,
             ),
       });
 
@@ -276,6 +323,7 @@ export default function POS() {
       setNewCustomerName("");
       setNewCustomerPhone("");
       setPaymentMethod("cash");
+      setCashPayCurrency("JOD");
     } catch (err: any) {
       toast({ title: tx("Error", "خطأ"), description: err.message, variant: "destructive" });
     } finally {
@@ -347,14 +395,19 @@ export default function POS() {
               <button
                 key={product.id}
                 onClick={() => !isDisabled && addToCart(product)}
-                className={cn("pos-btn relative", isDisabled && "pos-btn-disabled", inCart && "pos-btn-active")}
+                className={cn(
+                  "pos-btn relative",
+                  isDisabled && "pos-btn-disabled",
+                  /* Highlight & qty chip only for active lines; excluded state is visible only in the cart */
+                  inCart?.included && "pos-btn-active",
+                )}
                 disabled={isDisabled}
               >
                 {lowStock && (
                   <AlertTriangle className="absolute top-1 left-1 w-3.5 h-3.5 text-warning" />
                 )}
-                {inCart && (
-                  <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold">
+                {inCart?.included && (
+                  <span className="absolute top-1 right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs flex items-center justify-center font-bold bg-primary text-primary-foreground">
                     {inCart.quantity}
                   </span>
                 )}
@@ -401,11 +454,21 @@ export default function POS() {
 
       {/* Cart */}
       <div className="w-full lg:w-80 xl:w-96 glass-card rounded-2xl flex flex-col lg:max-h-[calc(100vh-7rem)]">
-        <div className="p-4 border-b border-border flex items-center gap-2">
-          <ShoppingBasket className="w-5 h-5 text-primary" />
+        <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap">
+          <ShoppingBasket className="w-5 h-5 text-primary shrink-0" />
           <h2 className="font-bold text-lg">{tx("Cart", "السلة")}</h2>
-          <span className="text-sm text-muted-foreground mr-auto">{cart.length} {tx("products", "منتج")}</span>
+          <span className="text-sm text-muted-foreground ms-auto">
+            {includedLines.length}/{cart.length} {tx("active / lines", "مفعّل / أسطر")}
+          </span>
         </div>
+        {cart.length > 0 && (
+          <p className="px-4 pb-2 text-[11px] text-muted-foreground leading-snug -mt-2">
+            {tx(
+              "Change quantity only from the product grid (tap product to add). Tap a cart row to exclude it from the total — not sold; line stays in red.",
+              "عدّل الكمية من شبكة المنتجات فقط (اضغط المنتج لزيادتها). اضغط سطراً في السلة لاستبعاده من المجموع دون بيعه؛ يبقى بالأحمر.",
+            )}
+          </p>
+        )}
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {cart.length === 0 ? (
@@ -413,29 +476,52 @@ export default function POS() {
           ) : (
             cart.map((item) => {
               const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
+              const lineTotal = price * item.quantity;
               return (
-                <div key={item.product.id} className="flex items-center gap-2 bg-muted/50 rounded-xl p-2">
+                <div
+                  key={item.product.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleCartLineIncluded(item.product.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleCartLineIncluded(item.product.id);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl p-2 border-2 transition-colors cursor-pointer select-none",
+                    item.included
+                      ? "bg-muted/50 border-transparent"
+                      : "bg-destructive/8 border-destructive/50",
+                  )}
+                >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{item.product.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatMoney(price)} × {item.quantity} = {formatMoney(price * item.quantity)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => updateQty(item.product.id, -1)} className="w-7 h-7 rounded-lg bg-card flex items-center justify-center hover:bg-destructive/10 transition-colors">
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="w-7 text-center text-sm font-bold">{item.quantity}</span>
-                    <button
-                      onClick={() => updateQty(item.product.id, 1)}
-                      disabled={item.quantity >= item.product.stock}
-                      className="w-7 h-7 rounded-lg bg-card flex items-center justify-center hover:bg-primary/10 transition-colors disabled:opacity-40"
+                    <p
+                      className={cn(
+                        "text-sm font-semibold truncate",
+                        !item.included && "text-destructive line-through decoration-destructive/80",
+                      )}
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => removeFromCart(item.product.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-destructive/10 text-destructive/60 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      {item.product.name}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xs",
+                        item.included ? "text-muted-foreground" : "text-destructive/90",
+                      )}
+                    >
+                      {formatMoney(price)} × {item.quantity} = {formatMoney(lineTotal)}
+                    </p>
+                    {!item.included && (
+                      <p className="text-[10px] font-bold text-destructive mt-0.5">
+                        {tx("Excluded from total", "مستبعد من المجموع")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 rounded-lg bg-muted/80 px-2.5 py-1.5 min-w-[2.5rem] text-center">
+                    <span className="text-xs text-muted-foreground block leading-none">{tx("Qty", "الكمية")}</span>
+                    <span className="text-base font-bold tabular-nums">{item.quantity}</span>
                   </div>
                 </div>
               );
@@ -444,9 +530,16 @@ export default function POS() {
         </div>
 
         <div className="p-4 border-t border-border space-y-3">
-          <div className="flex justify-between text-lg font-bold">
-            <span>{tx("Total", "المجموع")}</span>
-            <span className="text-primary">{formatMoney(total)}</span>
+          <div className="flex justify-between text-lg font-bold gap-2">
+            <span>{tx("Amount due", "المطلوب")}</span>
+            <div className="text-end min-w-0">
+              <div className="text-primary">{formatMoney(total)}</div>
+              {currency === "JOD" && cashPayCurrency !== "JOD" && !isCredit && (
+                <div className="text-xs font-semibold text-muted-foreground mt-0.5">
+                  ≈ {formatCashPay(totalInPayCurrency, cashPayCurrency)}
+                </div>
+              )}
+            </div>
           </div>
           {creditEnabled && (
             <div className="space-y-2">
@@ -573,33 +666,133 @@ export default function POS() {
             </div>
           </div>
           {paymentMethod === "cash" && !isCredit && (
-            <Input
-              type="number"
-              min={0}
-              placeholder={tx(`Paid amount (${currency})`, `المبلغ المدفوع (${currency})`)}
-              value={paidAmount}
-              onChange={(e) => setPaidAmount(e.target.value)}
-              className="h-12 rounded-xl text-lg text-center font-bold"
-              dir="ltr"
-            />
+            <div className="space-y-2">
+              {currency === "JOD" && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-foreground">
+                    {tx("Currency for the paid amount", "عملة المبلغ المدفوع")}
+                  </p>
+                  <Select
+                    value={cashPayCurrency}
+                    onValueChange={(v) => {
+                      setCashPayCurrency(v);
+                      setPaidAmount("");
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full h-11 rounded-xl border-input bg-background text-start font-medium"
+                      dir={isArabic ? "rtl" : "ltr"}
+                    >
+                      <SelectValue
+                        placeholder={tx("Jordanian Dinar (default)", "دينار أردني (افتراضي)")}
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[min(22rem,65vh)]" dir={isArabic ? "rtl" : "ltr"}>
+                      {CASH_PAY_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.code} value={opt.code} className="cursor-pointer">
+                          {cashPayLabel(opt, isArabic ? "ar" : "en")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div
+                className={cn(
+                  "rounded-xl border-2 px-3 py-2.5 text-center text-sm font-semibold leading-snug",
+                  cashPayIsForeign
+                    ? "border-primary/50 bg-primary/10 text-foreground"
+                    : "border-border bg-muted/50 text-foreground",
+                )}
+              >
+                {currency === "USD"
+                  ? tx(
+                      "You are entering how much the customer paid — in US Dollars (USD).",
+                      "تكتب هنا كم دفع الزبون — المبلغ بالدولار الأمريكي (USD).",
+                    )
+                  : cashPayCurrency !== "JOD"
+                    ? (
+                      <span className="block space-y-1">
+                        <span className="block">
+                          {tx(
+                            "The amount you type below is in the selected currency. Invoice total above stays in JOD.",
+                            "المبلغ الذي تكتبه أدناه بالعملة المختارة. إجمالي الفاتورة أعلاه يبقى بالدينار الأردني.",
+                          )}
+                        </span>
+                        <span className="block text-xs font-bold text-primary">
+                          {cashPayLabel(
+                            CASH_PAY_OPTIONS.find((o) => o.code === cashPayCurrency) ?? CASH_PAY_OPTIONS[0],
+                            isArabic ? "ar" : "en",
+                          )}
+                        </span>
+                      </span>
+                      )
+                    : tx(
+                        "You are entering how much the customer paid — in Jordanian Dinar (JOD).",
+                        "تكتب هنا كم دفع الزبون — بالدينار الأردني (JOD).",
+                      )}
+              </div>
+
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {currency === "JOD" && cashPayCurrency !== "JOD"
+                  ? tx(
+                      "Leave empty for exact payment in the selected currency, or type what the customer gave.",
+                      "اترك الحقل فارغاً للدفع بالضبط بالعملة المختارة، أو اكتب ما دفعه الزبون.",
+                    )
+                  : tx(
+                      "Leave empty for exact payment (no change). Type more to calculate change.",
+                      "اترك الحقل فارغاً للدفع بالضبط (بدون باقي). اكتب رقماً أكبر لحساب الباقي.",
+                    )}
+              </p>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder={
+                  currency === "USD"
+                    ? tx("Amount paid (USD)", "المبلغ المدفوع (USD)")
+                    : tx(
+                        `Paid (${cashPayCurrency})`,
+                        `المدفوع (${cashPayCurrency})`,
+                      )
+                }
+                value={paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value)}
+                className="h-12 rounded-xl text-lg text-center font-bold"
+                dir="ltr"
+              />
+              {currency === "JOD" && cashPayCurrency !== "JOD" && (
+                <p className="text-xs text-muted-foreground text-center">
+                  {tx(`Invoice due (JOD): ${formatMoney(total)}`, `المطلوب للفاتورة (دينار): ${formatMoney(total)}`)}
+                </p>
+              )}
+            </div>
           )}
           {paymentMethod !== "cash" && !isCredit && (
             <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               {tx("For Visa/Wallet, payment is counted as fully paid automatically.", "عند فيزا/محفظة يتم احتساب المبلغ مدفوع بالكامل تلقائياً.")}
             </div>
           )}
-          {paymentMethod === "cash" && paid > 0 && paid >= total && (
-            <div className="flex justify-between items-center bg-success/10 rounded-xl p-3">
-              <span className="font-semibold">{tx("Change", "الباقي")}</span>
-              <span className="text-xl font-bold text-success">{formatMoney(change)}</span>
+          {paymentMethod === "cash" && !isCredit && paidInShopCurrency + 1e-6 >= total && change > 0.0005 && (
+            <div className="flex justify-between items-start gap-2 bg-success/10 rounded-xl p-3">
+              <span className="font-semibold shrink-0">{tx("Change", "الباقي")}</span>
+              <div className="text-end min-w-0">
+                <div className="text-xl font-bold text-success">{formatMoney(change)}</div>
+                {currency === "JOD" && cashPayCurrency !== "JOD" && (
+                  <div className="text-sm font-semibold text-success/90 mt-0.5">
+                    {formatCashPay(changeInPayCurrency, cashPayCurrency)}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <Button
             onClick={checkout}
             disabled={
-              cart.length === 0
+              includedLines.length === 0
               || processing
-              || (!isCredit && paymentMethod === "cash" && paid < total)
+              || (!isCredit && paymentMethod === "cash" && paidInShopCurrency + 1e-6 < total)
             }
             className="w-full h-12 rounded-xl text-lg font-bold"
           >

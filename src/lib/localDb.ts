@@ -1,3 +1,5 @@
+import { DEFAULT_JOD_PER_UNIT } from "@/lib/cashPayCurrencies";
+
 export type SaleType = "retail" | "wholesale";
 export type CurrencyCode = "JOD" | "USD";
 export type LanguageCode = "en" | "ar";
@@ -88,7 +90,10 @@ type LocalState = {
     wholesale_min_qty: number;
     language: LanguageCode;
     enable_credit: boolean;
-    // Future: payment methods config if needed
+    /** JOD per 1 USD — legacy field; kept in sync when USD rate is saved */
+    jod_per_usd: number;
+    /** Overrides for cash FX: JOD per 1 unit of each code (e.g. USD, EUR) */
+    cash_fx_jod_per_unit: Partial<Record<string, number>>;
   };
 };
 
@@ -108,6 +113,8 @@ const defaultState: LocalState = {
     wholesale_min_qty: 10,
     language: "en",
     enable_credit: false,
+    jod_per_usd: 0.709,
+    cash_fx_jod_per_unit: {},
   },
 };
 
@@ -176,6 +183,15 @@ function readState(): LocalState {
         wholesale_min_qty: Math.max(1, parsed.settings?.wholesale_min_qty ?? 10),
         language: parsed.settings?.language === "ar" ? "ar" : "en",
         enable_credit: Boolean(parsed.settings?.enable_credit),
+        jod_per_usd: Math.max(
+          0.0001,
+          Number((parsed.settings as { jod_per_usd?: number } | undefined)?.jod_per_usd) || 0.709,
+        ),
+        cash_fx_jod_per_unit:
+          typeof (parsed.settings as { cash_fx_jod_per_unit?: unknown })?.cash_fx_jod_per_unit === "object"
+          && (parsed.settings as { cash_fx_jod_per_unit?: Record<string, number> }).cash_fx_jod_per_unit !== null
+            ? { ...(parsed.settings as { cash_fx_jod_per_unit: Record<string, number> }).cash_fx_jod_per_unit }
+            : {},
       },
     };
   } catch {
@@ -371,7 +387,11 @@ export function deleteProduct(id: string) {
 
 export function permanentlyDeleteProduct(id: string) {
   const state = readState();
-  state.products = state.products.filter((p) => p.id !== id);
+  const now = new Date().toISOString();
+  // Keep product history for old invoices; never physically remove product rows.
+  state.products = state.products.map((p) =>
+    p.id === id ? { ...p, deleted_at: p.deleted_at ?? now, updated_at: now } : p,
+  );
   writeState(state);
 }
 
@@ -398,9 +418,20 @@ export function getTrashedInvoices() {
 }
 
 export function getInvoiceItems(invoiceId?: string) {
-  const items = readState().invoice_items;
-  if (!invoiceId) return items;
-  return items.filter((i) => i.invoice_id === invoiceId);
+  const state = readState();
+  const items = invoiceId
+    ? state.invoice_items.filter((i) => i.invoice_id === invoiceId)
+    : state.invoice_items;
+
+  return items.map((item) => {
+    const product = state.products.find((p) => p.id === item.product_id);
+    if (!product?.deleted_at) return item;
+    const alreadyMarked = /\(Deleted\)$/i.test(item.product_name.trim());
+    return {
+      ...item,
+      product_name: alreadyMarked ? item.product_name : `${item.product_name} (Deleted)`,
+    };
+  });
 }
 
 export function getInvoiceNetTotal(invoiceId: string) {
@@ -415,6 +446,18 @@ export function getReturnableInvoices() {
   return state.invoices
     .filter((invoice) => invoice.total - (invoice.returned_amount ?? 0) > 0)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+/** Invoices that have recorded returns (for the returns history page). */
+export function getInvoicesWithReturns() {
+  return readState()
+    .invoices
+    .filter((i) => !i.deleted_at && (i.returned_amount ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        new Date(b.last_returned_at ?? b.created_at).getTime()
+        - new Date(a.last_returned_at ?? a.created_at).getTime(),
+    );
 }
 
 export function createInvoice(params: {
@@ -654,6 +697,49 @@ export function setCreditEnabled(enabled: boolean) {
   const state = readState();
   state.settings.enable_credit = enabled;
   writeState(state);
+}
+
+function mergedJodPerUnitMap(): Record<string, number> {
+  const s = readState().settings;
+  const saved = s.cash_fx_jod_per_unit || {};
+  const legacyUsd = s.jod_per_usd;
+  return {
+    ...DEFAULT_JOD_PER_UNIT,
+    ...(typeof legacyUsd === "number" ? { USD: legacyUsd } : {}),
+    ...saved,
+  };
+}
+
+/** JOD amount for 1 unit of `code` (code !== JOD). Used for cash payment conversion. */
+export function getCashFxJodPerUnit(code: string): number {
+  if (code === "JOD") return 1;
+  const m = mergedJodPerUnitMap();
+  const v = m[code] ?? DEFAULT_JOD_PER_UNIT[code] ?? DEFAULT_JOD_PER_UNIT.USD;
+  return Math.max(1e-12, Number(v) || DEFAULT_JOD_PER_UNIT.USD);
+}
+
+export function setCashFxJodPerUnit(code: string, value: number) {
+  if (code === "JOD") return;
+  const v = Number(value);
+  if (!Number.isFinite(v) || v <= 0) return;
+  const clamped = Math.min(1e6, Math.max(1e-12, v));
+  const state = readState();
+  state.settings.cash_fx_jod_per_unit = {
+    ...(state.settings.cash_fx_jod_per_unit || {}),
+    [code]: clamped,
+  };
+  if (code === "USD") {
+    state.settings.jod_per_usd = clamped;
+  }
+  writeState(state);
+}
+
+export function getJodPerUsd() {
+  return getCashFxJodPerUnit("USD");
+}
+
+export function setJodPerUsd(value: number) {
+  setCashFxJodPerUnit("USD", value);
 }
 
 export function seedTestProducts(count = 100) {

@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import { 
   ShoppingCart, LayoutDashboard, Package, FileText, LogOut, Menu, X, 
-  Store, ShieldCheck, Trash2, Wallet
+  Store, ShieldCheck, Trash2, Wallet, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ const navItems = [
   { path: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, roles: ["admin", "super_admin"] },
   { path: "/products", labelKey: "products", icon: Package, roles: ["admin", "super_admin"] },
   { path: "/invoices", labelKey: "invoices", icon: FileText, roles: ["cashier", "admin", "super_admin"] },
+  { path: "/returns", labelKey: "returnsPage", icon: History, roles: ["cashier", "admin", "super_admin"] },
   { path: "/credit", labelKey: "creditPage", icon: Wallet, roles: ["cashier", "admin", "super_admin"] },
   { path: "/access-control", labelKey: "accessControl", icon: ShieldCheck, roles: ["super_admin"] },
   { path: "/trash", labelKey: "trash", icon: Trash2, roles: ["super_admin"] },
@@ -30,7 +31,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     .filter((item) => role && item.roles.includes(role))
     .sort((a, b) => {
       if (role !== "cashier") return 0;
-      const cashierOrder = ["/cashier", "/invoices", "/credit"];
+      const cashierOrder = ["/cashier", "/invoices", "/returns", "/credit"];
       return cashierOrder.indexOf(a.path) - cashierOrder.indexOf(b.path);
     });
 

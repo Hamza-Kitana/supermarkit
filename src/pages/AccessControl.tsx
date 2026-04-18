@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,8 +14,13 @@ import {
   updateCashier,
   updateCashierPassword,
   softDeleteCashier,
+  getCashFxJodPerUnit,
+  subscribeDbChanges,
 } from "@/lib/localDb";
+import { CASH_PAY_OPTIONS, cashPayLabel } from "@/lib/cashPayCurrencies";
 import { useLanguage } from "@/hooks/useLanguage";
+
+const CASH_FX_OPTIONS = CASH_PAY_OPTIONS.filter((o) => o.code !== "JOD");
 
 type AccountKey = "admin" | "sadmin";
 
@@ -26,8 +31,20 @@ const accounts: { key: AccountKey; label: string }[] = [
 
 export default function AccessControl() {
   const { toast } = useToast();
-  const { currency, setCurrency } = useCurrency();
+  const { currency, setCurrency, formatMoney, setCashFxJodPerUnit, formatCashPay } = useCurrency();
   const { tx, isArabic } = useLanguage();
+  const [fxRefresh, setFxRefresh] = useState(0);
+  const [fxDraftByCode, setFxDraftByCode] = useState<Record<string, string>>({});
+
+  useEffect(() => subscribeDbChanges(() => setFxRefresh((n) => n + 1)), []);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const o of CASH_FX_OPTIONS) {
+      next[o.code] = String(getCashFxJodPerUnit(o.code));
+    }
+    setFxDraftByCode(next);
+  }, [fxRefresh]);
   const { cashiers } = useCashiers({ includeDeleted: true });
   const [selectedAccount, setSelectedAccount] = useState<AccountKey>("admin");
   const [newPassword, setNewPassword] = useState("");
@@ -117,7 +134,7 @@ export default function AccessControl() {
   };
 
   return (
-    <div className="max-w-xl space-y-6" dir={isArabic ? "rtl" : "ltr"}>
+    <div className="max-w-3xl space-y-6" dir={isArabic ? "rtl" : "ltr"}>
       <div>
         <h2 className="text-2xl font-bold">{tx("Access Control", "التحكم بالصلاحيات")}</h2>
         <p className="text-muted-foreground mt-1">
@@ -146,6 +163,89 @@ export default function AccessControl() {
             {tx("This setting applies instantly across prices and invoices.", "ينطبق هذا الإعداد فورًا على الأسعار والفواتير.")}
           </p>
         </div>
+
+        {currency === "JOD" && (
+          <div className="space-y-3">
+            <Label>
+              {tx(
+                "Cash payment exchange rates (JOD per 1 unit of foreign currency)",
+                "أسعار صرف الدفع الكاش (دينار أردني لكل 1 وحدة من العملة)",
+              )}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {tx(
+                "POS defaults to JOD. Cashiers can pick a foreign currency; amounts convert using these rates. Adjust to your bank or board rate.",
+                "نقطة البيع تبدأ بالدينار. يختار الكاشير العملة ويُحسب المبلغ من هذه الأسعار. عدّلها حسب سعرك.",
+              )}
+            </p>
+            <div className="rounded-xl border border-border/70 bg-muted/20 max-h-[min(420px,55vh)] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card/95 backdrop-blur border-b border-border z-10">
+                  <tr>
+                    <th className="text-start p-2 font-semibold">
+                      {tx("Currency", "العملة")}
+                    </th>
+                    <th className="text-start p-2 font-semibold whitespace-nowrap">
+                      {tx("JOD per 1", "دينار / 1")}
+                    </th>
+                    <th className="p-2 w-24" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {CASH_FX_OPTIONS.map((opt) => (
+                    <tr key={opt.code} className="border-b border-border/50 last:border-0">
+                      <td className="p-2 align-middle">
+                        <span className="font-medium">{cashPayLabel(opt, isArabic ? "ar" : "en")}</span>
+                        <span className="text-[10px] text-muted-foreground ms-1 font-mono">{opt.code}</span>
+                      </td>
+                      <td className="p-2 align-middle">
+                        <Input
+                          type="number"
+                          min={0.0000001}
+                          step={opt.code === "IQD" || opt.code === "LBP" ? 0.0000001 : 0.001}
+                          value={fxDraftByCode[opt.code] ?? ""}
+                          onChange={(e) =>
+                            setFxDraftByCode((d) => ({ ...d, [opt.code]: e.target.value }))
+                          }
+                          dir="ltr"
+                          className="h-9 text-left max-w-[140px]"
+                        />
+                      </td>
+                      <td className="p-2 align-middle">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="w-full"
+                          onClick={() => {
+                            const n = parseFloat(fxDraftByCode[opt.code] ?? "");
+                            if (!Number.isFinite(n) || n <= 0) {
+                              toast({
+                                title: tx("Enter a valid rate", "أدخل سعراً صحيحاً"),
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            setCashFxJodPerUnit(opt.code, n);
+                            toast({
+                              title: tx("Rate saved", "تم حفظ السعر"),
+                              description: tx(
+                                `Example: ${formatMoney(1)} ≈ ${formatCashPay(1 / n, opt.code)}`,
+                                `مثال: ${formatMoney(1)} ≈ ${formatCashPay(1 / n, opt.code)}`,
+                              ),
+                            });
+                          }}
+                        >
+                          {tx("Save", "حفظ")}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label>{tx("Enable credit sales", "تفعيل البيع بالدين")}</Label>

@@ -12,6 +12,7 @@ import Invoices from "@/pages/Invoices";
 import CreditPage from "@/pages/Credit";
 import AccessControl from "@/pages/AccessControl";
 import Trash from "@/pages/Trash";
+import Returns from "@/pages/Returns";
 import AppLayout from "@/components/AppLayout";
 import NotFound from "@/pages/NotFound";
 
@@ -41,6 +42,7 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/dashboard" element={<Dashboard />} />}
         {isAdmin && <Route path="/products" element={<Products />} />}
         <Route path="/invoices" element={<Invoices />} />
+        <Route path="/returns" element={<Returns />} />
         <Route path="/credit" element={<CreditPage />} />
         {role === "super_admin" && <Route path="/access-control" element={<AccessControl />} />}
         {role === "super_admin" && <Route path="/trash" element={<Trash />} />}
