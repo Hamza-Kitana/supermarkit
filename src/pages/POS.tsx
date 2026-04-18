@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/hooks/useProducts";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +14,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import ReturnDialog from "@/components/ReturnDialog";
 import {
   addCustomer,
@@ -21,9 +28,7 @@ import {
   createPosExclusionCloseInvoice,
   getCustomers,
   notifyLocalDbChanged,
-  recordPosCartExclusion,
   recordPosCartExclusionsBatch,
-  removeLastPosCartExclusionForProduct,
   subscribeDbChanges,
   type LocalCustomer,
 } from "@/lib/localDb";
@@ -44,8 +49,12 @@ import { cn } from "@/lib/utils";
 interface CartItem {
   product: Product;
   quantity: number;
-  /** If false: still listed on the ticket but not counted in total or invoice */
-  included: boolean;
+  /** Units excluded from sale (logged to Returns on complete). 0 … quantity */
+  excludedQuantity: number;
+}
+
+function saleQty(item: CartItem) {
+  return Math.max(0, item.quantity - item.excludedQuantity);
 }
 
 export default function POS() {
@@ -74,6 +83,8 @@ export default function POS() {
   /** Cash denomination for the paid-amount field (default: JOD) */
   const [cashPayCurrency, setCashPayCurrency] = useState<string>("JOD");
   const [fullReturnConfirmOpen, setFullReturnConfirmOpen] = useState(false);
+  const [excludeDialogProductId, setExcludeDialogProductId] = useState<string | null>(null);
+  const [excludeQtyDraft, setExcludeQtyDraft] = useState("");
 
   useEffect(() => {
     const refresh = () => setCustomers(getCustomers());
@@ -108,14 +119,15 @@ export default function POS() {
     return products.filter((p) => p.name.includes(search));
   }, [products, search]);
 
-  const includedLines = useMemo(() => cart.filter((i) => i.included), [cart]);
+  const includedLines = useMemo(() => cart.filter((i) => saleQty(i) > 0), [cart]);
 
   const total = useMemo(
-    () => includedLines.reduce((sum, item) => {
-      const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
-      return sum + price * item.quantity;
-    }, 0),
-    [includedLines, saleType]
+    () =>
+      cart.reduce((sum, item) => {
+        const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
+        return sum + price * saleQty(item);
+      }, 0),
+    [cart, saleType],
   );
 
   const jodPerUnitPay = useMemo(
@@ -190,67 +202,51 @@ export default function POS() {
           return prev;
         }
         return prev.map((i) =>
-          i.product.id === product.id ? { ...i, quantity: i.quantity + 1, included: true } : i
+          i.product.id === product.id
+            ? {
+                ...i,
+                quantity: i.quantity + 1,
+                excludedQuantity: Math.min(i.excludedQuantity, i.quantity + 1),
+              }
+            : i,
         );
       }
       const initialQty = saleType === "wholesale" ? productWholesaleMin : 1;
-      return [...prev, { product, quantity: initialQty, included: true }];
+      return [...prev, { product, quantity: initialQty, excludedQuantity: 0 }];
     });
   };
 
-  const toggleCartLineIncluded = (productId: string) => {
-    const target = cart.find((i) => i.product.id === productId);
-    if (!target || !user) return;
+  const openExcludeDialog = useCallback((productId: string) => {
+    const row = cart.find((i) => i.product.id === productId);
+    if (!row) return;
+    setExcludeDialogProductId(productId);
+    setExcludeQtyDraft(String(row.excludedQuantity));
+  }, [cart]);
 
-    const cashierId = user.cashierId ?? user.id;
-    const cashierName =
-      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
-    const unitPrice =
-      saleType === "retail" ? target.product.retail_price : target.product.wholesale_price;
-
-    if (target.included) {
-      recordPosCartExclusion({
-        cashier_id: cashierId,
-        cashier_name: cashierName,
-        product_id: target.product.id,
-        product_name: target.product.name,
-        quantity: target.quantity,
-        sale_type: saleType,
-        unit_price: unitPrice,
-      });
-    } else {
-      removeLastPosCartExclusionForProduct(productId);
-    }
-
+  const applyExcludeQuantity = () => {
+    if (!excludeDialogProductId) return;
+    const row = cart.find((i) => i.product.id === excludeDialogProductId);
+    if (!row) return;
+    const parsed = Math.floor(Number.parseInt(excludeQtyDraft, 10) || 0);
+    const next = Math.min(Math.max(0, parsed), row.quantity);
     setCart((prev) =>
-      prev.map((i) => (i.product.id === productId ? { ...i, included: !i.included } : i)),
+      prev.map((i) => (i.product.id === excludeDialogProductId ? { ...i, excludedQuantity: next } : i)),
     );
+    setExcludeDialogProductId(null);
+    setExcludeQtyDraft("");
   };
+
+  const excludeDialogItem = useMemo(
+    () =>
+      excludeDialogProductId
+        ? cart.find((i) => i.product.id === excludeDialogProductId)
+        : undefined,
+    [cart, excludeDialogProductId],
+  );
 
   const confirmFullCartReturn = () => {
     if (!user) return;
-    const cashierId = user.cashierId ?? user.id;
-    const cashierName =
-      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
-
-    const toLog = cart
-      .filter((line) => line.included)
-      .map((line) => {
-        const unitPrice =
-          saleType === "retail" ? line.product.retail_price : line.product.wholesale_price;
-        return {
-          cashier_id: cashierId,
-          cashier_name: cashierName,
-          product_id: line.product.id,
-          product_name: line.product.name,
-          quantity: line.quantity,
-          sale_type: saleType,
-          unit_price: unitPrice,
-        };
-      });
-    recordPosCartExclusionsBatch(toLog);
-
-    setCart((prev) => prev.map((i) => ({ ...i, included: false })));
+    setCart((prev) => prev.map((i) => ({ ...i, excludedQuantity: i.quantity })));
     setFullReturnConfirmOpen(false);
     toast({
       title: tx("All lines excluded ✓", "تم استبعاد كل الأسطر ✓"),
@@ -277,13 +273,13 @@ export default function POS() {
 
   const checkout = async () => {
     if (!user || cart.length === 0) return;
-    const linesForSale = cart.filter((i) => i.included);
+    const linesForSale = cart.filter((i) => saleQty(i) > 0);
 
     if (linesForSale.length === 0) {
       setProcessing(true);
       try {
-        const excluded = cart.filter((i) => !i.included);
-        if (excluded.length > 0 && user) {
+        const hasExclusions = cart.some((i) => i.excludedQuantity > 0);
+        if (hasExclusions && user) {
           const activeCashierId = user.cashierId ?? user.id;
           const activeCashierName =
             role === "super_admin"
@@ -291,7 +287,23 @@ export default function POS() {
               : role === "admin"
                 ? "admin"
                 : user.displayName;
-          const snapshotItems = excluded.map((ci) => {
+          const logBatch = cart
+            .filter((ci) => ci.excludedQuantity > 0)
+            .map((ci) => {
+              const unit_price =
+                saleType === "retail" ? ci.product.retail_price : ci.product.wholesale_price;
+              return {
+                cashier_id: activeCashierId,
+                cashier_name: activeCashierName,
+                product_id: ci.product.id,
+                product_name: ci.product.name,
+                quantity: ci.excludedQuantity,
+                sale_type: saleType,
+                unit_price,
+              };
+            });
+          recordPosCartExclusionsBatch(logBatch);
+          const snapshotItems = cart.map((ci) => {
             const unit_price =
               saleType === "retail" ? ci.product.retail_price : ci.product.wholesale_price;
             return {
@@ -341,7 +353,7 @@ export default function POS() {
           ? "admin"
           : user.displayName;
     if (!isCredit && saleType === "wholesale") {
-      const invalidItems = linesForSale.filter((item) => item.quantity < item.product.wholesale_min_qty);
+      const invalidItems = linesForSale.filter((item) => saleQty(item) < item.product.wholesale_min_qty);
       if (invalidItems.length > 0) {
         const invalidNames = invalidItems
           .map((item) => `${item.product.name} (${item.product.wholesale_min_qty})`)
@@ -377,14 +389,36 @@ export default function POS() {
 
     setProcessing(true);
     try {
-      const items = linesForSale.map((item) => ({
-        product_id: item.product.id,
-        product_name: item.product.name,
-        quantity: item.quantity,
-        unit_cost: item.product.cost_price ?? 0,
-        unit_price: saleType === "retail" ? item.product.retail_price : item.product.wholesale_price,
-        subtotal: (saleType === "retail" ? item.product.retail_price : item.product.wholesale_price) * item.quantity,
-      }));
+      const logBatch = cart
+        .filter((i) => i.excludedQuantity > 0)
+        .map((ci) => {
+          const unit_price =
+            saleType === "retail" ? ci.product.retail_price : ci.product.wholesale_price;
+          return {
+            cashier_id: activeCashierId,
+            cashier_name: activeCashierName,
+            product_id: ci.product.id,
+            product_name: ci.product.name,
+            quantity: ci.excludedQuantity,
+            sale_type: saleType,
+            unit_price,
+          };
+        });
+      recordPosCartExclusionsBatch(logBatch);
+
+      const items = linesForSale.map((item) => {
+        const sq = saleQty(item);
+        const unit_price =
+          saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
+        return {
+          product_id: item.product.id,
+          product_name: item.product.name,
+          quantity: sq,
+          unit_cost: item.product.cost_price ?? 0,
+          unit_price,
+          subtotal: unit_price * sq,
+        };
+      });
 
       const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
       const finalCustomerName = isCredit
@@ -407,6 +441,35 @@ export default function POS() {
         payment_method: isCredit ? "cash" : paymentMethod,
         items,
       });
+
+      const excludedValue = cart.reduce((sum, i) => {
+        if (i.excludedQuantity <= 0) return sum;
+        const unit_price =
+          saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
+        return sum + unit_price * i.excludedQuantity;
+      }, 0);
+      if (excludedValue > 0.0001) {
+        const exItems = cart
+          .filter((i) => i.excludedQuantity > 0)
+          .map((i) => {
+            const unit_price =
+              saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
+            return {
+              product_id: i.product.id,
+              product_name: i.product.name,
+              quantity: i.excludedQuantity,
+              unit_cost: i.product.cost_price ?? 0,
+              unit_price,
+              subtotal: unit_price * i.excludedQuantity,
+            };
+          });
+        createPosExclusionCloseInvoice({
+          cashier_id: activeCashierId,
+          cashier_name: activeCashierName,
+          sale_type: saleType,
+          items: exItems,
+        });
+      }
 
       toast({
         title: isCredit
@@ -503,6 +566,7 @@ export default function POS() {
             const lowStock = product.stock > 0 && product.stock <= product.min_stock;
             const price = saleType === "retail" ? product.retail_price : product.wholesale_price;
             const inCart = cart.find((i) => i.product.id === product.id);
+            const inCartSaleQty = inCart ? saleQty(inCart) : 0;
 
             return (
               <button
@@ -512,14 +576,14 @@ export default function POS() {
                   "pos-btn relative",
                   isDisabled && "pos-btn-disabled",
                   /* Highlight & qty chip only for active lines; excluded state is visible only in the cart */
-                  inCart?.included && "pos-btn-active",
+                  inCartSaleQty > 0 && "pos-btn-active",
                 )}
                 disabled={isDisabled}
               >
                 {lowStock && (
                   <AlertTriangle className="absolute top-1 left-1 w-3.5 h-3.5 text-warning" />
                 )}
-                {inCart?.included && (
+                {inCart && inCart.quantity > 0 && (
                   <span className="absolute top-1 right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs flex items-center justify-center font-bold bg-primary text-primary-foreground">
                     {inCart.quantity}
                   </span>
@@ -577,8 +641,8 @@ export default function POS() {
         {cart.length > 0 && (
           <p className="px-4 pb-2 text-[11px] text-muted-foreground leading-snug -mt-2">
             {tx(
-              "Change quantity only from the product grid (tap product to add). Tap a cart row to exclude it from the total — not sold; line stays in red.",
-              "عدّل الكمية من شبكة المنتجات فقط (اضغط المنتج لزيادتها). اضغط سطراً في السلة لاستبعاده من المجموع دون بيعه؛ يبقى بالأحمر.",
+              "Tap product on the grid to add quantity. Tap a cart row to set how many units to exclude from the sale (logged on complete).",
+              "اضغط المنتج في الشبكة لزيادة الكمية. اضغط سطراً في السلة لتحديد كم وحدة تُستبعد من البيع (يُسجّل عند الإتمام).",
             )}
           </p>
         )}
@@ -589,46 +653,53 @@ export default function POS() {
           ) : (
             cart.map((item) => {
               const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
-              const lineTotal = price * item.quantity;
+              const sq = saleQty(item);
+              const ex = item.excludedQuantity;
+              const saleLine = price * sq;
+              const exLine = price * ex;
               return (
                 <div
                   key={item.product.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => toggleCartLineIncluded(item.product.id)}
+                  onClick={() => openExcludeDialog(item.product.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      toggleCartLineIncluded(item.product.id);
+                      openExcludeDialog(item.product.id);
                     }
                   }}
                   className={cn(
                     "flex items-center gap-2 rounded-xl p-2 border-2 transition-colors cursor-pointer select-none",
-                    item.included
-                      ? "bg-muted/50 border-transparent"
-                      : "bg-destructive/8 border-destructive/50",
+                    ex === 0 ? "bg-muted/50 border-transparent" : "bg-destructive/8 border-destructive/50",
                   )}
                 >
                   <div className="flex-1 min-w-0">
                     <p
                       className={cn(
                         "text-sm font-semibold truncate",
-                        !item.included && "text-destructive line-through decoration-destructive/80",
+                        ex > 0 && "text-destructive/95",
                       )}
                     >
                       {item.product.name}
                     </p>
-                    <p
-                      className={cn(
-                        "text-xs",
-                        item.included ? "text-muted-foreground" : "text-destructive/90",
-                      )}
-                    >
-                      {formatMoney(price)} × {item.quantity} = {formatMoney(lineTotal)}
+                    <p className="text-xs text-muted-foreground">
+                      {tx("In cart", "في السلة")}: {item.quantity} · {tx("For sale", "للبيع")}: {sq}
+                      {ex > 0 ? ` · ${tx("Excluded", "مستبعد")}: ${ex}` : ""}
                     </p>
-                    {!item.included && (
+                    <p className="text-xs mt-0.5">
+                      <span className="text-foreground font-medium">
+                        {tx("Sale", "بيع")}: {formatMoney(price)} × {sq} = {formatMoney(saleLine)}
+                      </span>
+                      {ex > 0 && (
+                        <span className="text-destructive font-semibold ms-2">
+                          {tx("Excluded", "مستبعد")}: {formatMoney(exLine)}
+                        </span>
+                      )}
+                    </p>
+                    {ex > 0 && (
                       <p className="text-[10px] font-bold text-destructive mt-0.5">
-                        {tx("Excluded from total", "مستبعد من المجموع")}
+                        {tx("Tap to change excluded quantity", "اضغط لتغيير كمية المستبعد")}
                       </p>
                     )}
                   </div>
@@ -935,6 +1006,79 @@ export default function POS() {
           </Button>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(excludeDialogProductId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setExcludeDialogProductId(null);
+            setExcludeQtyDraft("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md" dir={isArabic ? "rtl" : "ltr"}>
+          <DialogHeader>
+            <DialogTitle>{tx("Exclude from sale", "استبعاد من البيع")}</DialogTitle>
+          </DialogHeader>
+          {excludeDialogItem && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {tx(
+                  "How many units should be excluded (not sold)? They will appear under Returns when you complete the cart.",
+                  "كم وحدة تُستبعد من البيع؟ ستظهر في المرتجعات عند إتمام السلة.",
+                )}
+              </p>
+              <p className="font-semibold">{excludeDialogItem.product.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {tx("Total in cart", "الإجمالي في السلة")}: {excludeDialogItem.quantity}
+              </p>
+              <Input
+                type="number"
+                min={0}
+                max={excludeDialogItem.quantity}
+                value={excludeQtyDraft}
+                onChange={(e) => setExcludeQtyDraft(e.target.value)}
+                className="text-center text-lg font-bold h-12"
+                dir="ltr"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => setExcludeQtyDraft("0")}
+                >
+                  {tx("None (all for sale)", "لا شيء (الكل للبيع)")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-destructive/40"
+                  onClick={() => setExcludeQtyDraft(String(excludeDialogItem.quantity))}
+                >
+                  {tx("Exclude all", "استبعاد الكل")}
+                </Button>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setExcludeDialogProductId(null);
+                    setExcludeQtyDraft("");
+                  }}
+                >
+                  {tx("Cancel", "إلغاء")}
+                </Button>
+                <Button type="button" className="rounded-xl" onClick={applyExcludeQuantity}>
+                  {tx("Save", "حفظ")}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ReturnDialog open={returnOpen} onOpenChange={setReturnOpen} />
       <AlertDialog
