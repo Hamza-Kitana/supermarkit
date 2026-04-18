@@ -77,6 +77,20 @@ export interface LocalInvoiceItem {
   subtotal: number;
 }
 
+/** Logged when cashier excludes a cart line (red) — shows on Returns page immediately */
+export interface LocalPosCartExclusion {
+  id: string;
+  created_at: string;
+  cashier_id: string;
+  cashier_name: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  sale_type: SaleType;
+  unit_price: number;
+  line_value: number;
+}
+
 type LocalState = {
   products: LocalProduct[];
   cashiers: LocalCashier[];
@@ -84,6 +98,8 @@ type LocalState = {
   customers: LocalCustomer[];
   invoices: LocalInvoice[];
   invoice_items: LocalInvoiceItem[];
+  /** POS: customer chose not to sell a line (tapped to exclude); appears under Returns */
+  pos_cart_exclusions: LocalPosCartExclusion[];
   settings: {
     return_password: string;
     currency: CurrencyCode;
@@ -107,6 +123,7 @@ const defaultState: LocalState = {
   customers: [],
   invoices: [],
   invoice_items: [],
+  pos_cart_exclusions: [],
   settings: {
     return_password: "000",
     currency: "JOD",
@@ -177,6 +194,12 @@ function readState(): LocalState {
         returned_quantity: (item as LocalInvoiceItem).returned_quantity ?? 0,
         unit_cost: Math.max(0, Number((item as Partial<LocalInvoiceItem>).unit_cost ?? 0)),
       })),
+      pos_cart_exclusions: Array.isArray((parsed as Partial<LocalState>).pos_cart_exclusions)
+        ? ((parsed as Partial<LocalState>).pos_cart_exclusions as LocalPosCartExclusion[]).map((row) => ({
+            ...row,
+            line_value: Math.max(0, Number((row as LocalPosCartExclusion).line_value ?? 0)),
+          }))
+        : [],
       settings: {
         return_password: parsed.settings?.return_password ?? "000",
         currency: parsed.settings?.currency === "USD" ? "USD" : "JOD",
@@ -740,6 +763,46 @@ export function getJodPerUsd() {
 
 export function setJodPerUsd(value: number) {
   setCashFxJodPerUnit("USD", value);
+}
+
+export function getPosCartExclusions() {
+  return readState()
+    .pos_cart_exclusions
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+export function recordPosCartExclusion(params: {
+  cashier_id: string;
+  cashier_name: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  sale_type: SaleType;
+  unit_price: number;
+}) {
+  const state = readState();
+  const line_value = Math.max(0, params.unit_price * params.quantity);
+  state.pos_cart_exclusions.push({
+    id: newId(),
+    created_at: new Date().toISOString(),
+    ...params,
+    line_value,
+  });
+  writeState(state);
+}
+
+/** When the line is included again, drop the latest cart-exclusion log for this product */
+export function removeLastPosCartExclusionForProduct(productId: string) {
+  const state = readState();
+  const list = state.pos_cart_exclusions;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i].product_id === productId) {
+      list.splice(i, 1);
+      writeState(state);
+      return;
+    }
+  }
 }
 
 export function seedTestProducts(count = 100) {

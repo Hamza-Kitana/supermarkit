@@ -15,7 +15,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import ReturnDialog from "@/components/ReturnDialog";
-import { addCustomer, createInvoice, getCustomers, subscribeDbChanges, type LocalCustomer } from "@/lib/localDb";
+import {
+  addCustomer,
+  createInvoice,
+  getCustomers,
+  recordPosCartExclusion,
+  removeLastPosCartExclusionForProduct,
+  subscribeDbChanges,
+  type LocalCustomer,
+} from "@/lib/localDb";
 import { CASH_PAY_OPTIONS, cashPayLabel } from "@/lib/cashPayCurrencies";
 import { useCurrency } from "@/hooks/useCurrency";
 import {
@@ -62,6 +70,7 @@ export default function POS() {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   /** Cash denomination for the paid-amount field (default: JOD) */
   const [cashPayCurrency, setCashPayCurrency] = useState<string>("JOD");
+  const [fullReturnConfirmOpen, setFullReturnConfirmOpen] = useState(false);
 
   useEffect(() => {
     const refresh = () => setCustomers(getCustomers());
@@ -187,9 +196,64 @@ export default function POS() {
   };
 
   const toggleCartLineIncluded = (productId: string) => {
+    const target = cart.find((i) => i.product.id === productId);
+    if (!target || !user) return;
+
+    const cashierId = user.cashierId ?? user.id;
+    const cashierName =
+      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
+    const unitPrice =
+      saleType === "retail" ? target.product.retail_price : target.product.wholesale_price;
+
+    if (target.included) {
+      recordPosCartExclusion({
+        cashier_id: cashierId,
+        cashier_name: cashierName,
+        product_id: target.product.id,
+        product_name: target.product.name,
+        quantity: target.quantity,
+        sale_type: saleType,
+        unit_price: unitPrice,
+      });
+    } else {
+      removeLastPosCartExclusionForProduct(productId);
+    }
+
     setCart((prev) =>
       prev.map((i) => (i.product.id === productId ? { ...i, included: !i.included } : i)),
     );
+  };
+
+  const confirmFullCartReturn = () => {
+    if (!user) return;
+    const cashierId = user.cashierId ?? user.id;
+    const cashierName =
+      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
+
+    for (const line of cart) {
+      if (!line.included) continue;
+      const unitPrice =
+        saleType === "retail" ? line.product.retail_price : line.product.wholesale_price;
+      recordPosCartExclusion({
+        cashier_id: cashierId,
+        cashier_name: cashierName,
+        product_id: line.product.id,
+        product_name: line.product.name,
+        quantity: line.quantity,
+        sale_type: saleType,
+        unit_price: unitPrice,
+      });
+    }
+
+    setCart((prev) => prev.map((i) => ({ ...i, included: false })));
+    setFullReturnConfirmOpen(false);
+    toast({
+      title: tx("All lines excluded ✓", "تم استبعاد كل الأسطر ✓"),
+      description: tx(
+        "Recorded under Returns. Tap Complete to close the cart.",
+        "مُسجّل في المرتجعات. اضغط «إتمام» لإغلاق السلة.",
+      ),
+    });
   };
 
   const askSaleTypeChange = (nextType: "retail" | "wholesale") => {
@@ -209,15 +273,30 @@ export default function POS() {
   const checkout = async () => {
     if (!user || cart.length === 0) return;
     const linesForSale = cart.filter((i) => i.included);
+
     if (linesForSale.length === 0) {
-      toast({
-        title: tx("Nothing to sell", "لا يوجد شيء للبيع"),
-        description: tx(
-          "Turn on at least one line (tap a red row) or add products.",
-          "فعّل سطراً واحداً على الأقل (اضغط على السطر الأحمر) أو أضف منتجات.",
-        ),
-        variant: "destructive",
-      });
+      setProcessing(true);
+      try {
+        toast({
+          title: tx("Full return closed ✓", "تم إغلاق الإرجاع الكامل ✓"),
+          description: tx(
+            "Cart cleared. Excluded items remain listed under Returns.",
+            "تم تفريغ السلة. البنود المستبعدة تبقى في المرتجعات.",
+          ),
+        });
+        setCart([]);
+        setPaidAmount("");
+        setCustomerName("");
+        setSelectedCustomerId("");
+        setIsCredit(false);
+        setShowAddCustomer(false);
+        setNewCustomerName("");
+        setNewCustomerPhone("");
+        setPaymentMethod("cash");
+        setCashPayCurrency("JOD");
+      } finally {
+        setProcessing(false);
+      }
       return;
     }
     const activeCashierId = user.cashierId ?? user.id;
@@ -529,6 +608,19 @@ export default function POS() {
           )}
         </div>
 
+        {cart.length > 0 && includedLines.length > 0 && (
+          <div className="px-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-xl border-destructive/50 text-destructive hover:bg-destructive/10"
+              onClick={() => setFullReturnConfirmOpen(true)}
+            >
+              {tx("Full return — exclude all lines", "إرجاع كامل — استبعاد كل الأسطر")}
+            </Button>
+          </div>
+        )}
+
         <div className="p-4 border-t border-border space-y-3">
           <div className="flex justify-between text-lg font-bold gap-2">
             <span>{tx("Amount due", "المطلوب")}</span>
@@ -790,22 +882,54 @@ export default function POS() {
           <Button
             onClick={checkout}
             disabled={
-              includedLines.length === 0
+              cart.length === 0
               || processing
-              || (!isCredit && paymentMethod === "cash" && paidInShopCurrency + 1e-6 < total)
+              || (includedLines.length > 0
+                && !isCredit
+                && paymentMethod === "cash"
+                && paidInShopCurrency + 1e-6 < total)
             }
             className="w-full h-12 rounded-xl text-lg font-bold"
           >
             {processing
               ? tx("Processing...", "جاري المعالجة...")
-              : isCredit
-                ? tx("Complete Credit", "إتمام الدين")
-                : tx("Complete Sale", "إتمام البيع")}
+              : includedLines.length === 0 && cart.length > 0
+                ? tx("Complete — close full return", "إتمام — إغلاق الإرجاع الكامل")
+                : isCredit
+                  ? tx("Complete Credit", "إتمام الدين")
+                  : tx("Complete Sale", "إتمام البيع")}
           </Button>
         </div>
       </div>
 
       <ReturnDialog open={returnOpen} onOpenChange={setReturnOpen} />
+      <AlertDialog
+        open={fullReturnConfirmOpen}
+        onOpenChange={setFullReturnConfirmOpen}
+      >
+        <AlertDialogContent dir={isArabic ? "rtl" : "ltr"}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {tx("Confirm full return", "تأكيد الإرجاع الكامل")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx(
+                "All cart lines will be marked not sold (red) and logged under Returns. You can then tap Complete to close the cart with no sale.",
+                "سيتم استبعاد كل أسطر السلة (بالأحمر) وتسجيلها في المرتجعات. بعدها يمكنك الضغط على «إتمام» لإغلاق السلة دون بيع.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tx("Cancel", "إلغاء")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmFullCartReturn}
+            >
+              {tx("Confirm full return", "تأكيد الإرجاع الكامل")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={saleTypeConfirmOpen}
         onOpenChange={(open) => {
