@@ -18,6 +18,7 @@ import ReturnDialog from "@/components/ReturnDialog";
 import {
   addCustomer,
   createInvoice,
+  createPosExclusionCloseInvoice,
   getCustomers,
   notifyLocalDbChanged,
   recordPosCartExclusion,
@@ -281,11 +282,39 @@ export default function POS() {
     if (linesForSale.length === 0) {
       setProcessing(true);
       try {
+        const excluded = cart.filter((i) => !i.included);
+        if (excluded.length > 0 && user) {
+          const activeCashierId = user.cashierId ?? user.id;
+          const activeCashierName =
+            role === "super_admin"
+              ? "Sadmin"
+              : role === "admin"
+                ? "admin"
+                : user.displayName;
+          const snapshotItems = excluded.map((ci) => {
+            const unit_price =
+              saleType === "retail" ? ci.product.retail_price : ci.product.wholesale_price;
+            return {
+              product_id: ci.product.id,
+              product_name: ci.product.name,
+              quantity: ci.quantity,
+              unit_cost: ci.product.cost_price ?? 0,
+              unit_price,
+              subtotal: unit_price * ci.quantity,
+            };
+          });
+          createPosExclusionCloseInvoice({
+            cashier_id: activeCashierId,
+            cashier_name: activeCashierName,
+            sale_type: saleType,
+            items: snapshotItems,
+          });
+        }
         toast({
           title: tx("Full return closed ✓", "تم إغلاق الإرجاع الكامل ✓"),
           description: tx(
-            "Cart cleared. Excluded items remain listed under Returns.",
-            "تم تفريغ السلة. البنود المستبعدة تبقى في المرتجعات.",
+            "Cart cleared. Logged under Returns and as a cash receipt on Invoices.",
+            "تم تفريغ السلة. يُسجّل في المرتجعات وكإيصال كاش في الفواتير.",
           ),
         });
         setCart([]);

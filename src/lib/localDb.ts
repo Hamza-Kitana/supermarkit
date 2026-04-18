@@ -63,6 +63,8 @@ export interface LocalInvoice {
   return_approved_by: string | null;
   notes: string | null;
   created_at: string;
+  /** True when this row is a receipt mirror for a full cart exclusion close (no stock deducted here). */
+  pos_exclusion_only?: boolean;
 }
 
 export interface LocalInvoiceItem {
@@ -188,6 +190,7 @@ function readState(): LocalState {
           ?? String((invoice as any).cashier_id ?? "Cashier"),
         customer_phone: (invoice as LocalInvoice).customer_phone ?? null,
         payment_method: (invoice as LocalInvoice).payment_method ?? "cash",
+        pos_exclusion_only: Boolean((invoice as Partial<LocalInvoice>).pos_exclusion_only),
       })),
       invoice_items: (parsed.invoice_items ?? []).map((item) => ({
         ...item,
@@ -544,6 +547,7 @@ export function createInvoice(params: {
     return_approved_by: null,
     notes: null,
     created_at: now,
+    pos_exclusion_only: false,
   };
 
   for (const line of params.items) {
@@ -574,6 +578,74 @@ export function createInvoice(params: {
       updated_at: now,
     };
   });
+
+  writeState(state);
+  return invoice;
+}
+
+/**
+ * Receipt row for “full cart exclusion” close: shows on Invoices like a normal cash sale.
+ * Does not change stock (items were not sold on this slip).
+ */
+export function createPosExclusionCloseInvoice(params: {
+  cashier_id: string;
+  cashier_name: string;
+  sale_type: SaleType;
+  items: Array<{
+    product_id: string;
+    product_name: string;
+    quantity: number;
+    unit_cost: number;
+    unit_price: number;
+    subtotal: number;
+  }>;
+}) {
+  if (params.items.length === 0) {
+    throw new Error("No items for exclusion close invoice");
+  }
+  const state = readState();
+  const invoiceId = newId();
+  const now = new Date().toISOString();
+  const total = params.items.reduce((sum, i) => sum + i.subtotal, 0);
+
+  for (const line of params.items) {
+    const product = state.products.find((p) => p.id === line.product_id);
+    if (!product) {
+      throw new Error(`Product not found: ${line.product_name}`);
+    }
+  }
+
+  const invoice: LocalInvoice = {
+    id: invoiceId,
+    cashier_id: params.cashier_id,
+    cashier_name: params.cashier_name,
+    sale_type: params.sale_type,
+    total,
+    returned_amount: 0,
+    last_returned_at: null,
+    paid: total,
+    change_amount: 0,
+    is_credit: false,
+    customer_name: null,
+    customer_phone: null,
+    payment_method: "cash",
+    is_return: false,
+    deleted_at: null,
+    return_approved_by: null,
+    notes: null,
+    created_at: now,
+    pos_exclusion_only: true,
+  };
+
+  state.invoices.push(invoice);
+  state.invoice_items.push(
+    ...params.items.map((item) => ({
+      id: newId(),
+      invoice_id: invoiceId,
+      returned_quantity: 0,
+      ...item,
+    })),
+  );
 
   writeState(state);
   return invoice;
