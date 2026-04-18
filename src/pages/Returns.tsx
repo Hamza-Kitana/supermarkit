@@ -54,11 +54,11 @@ export default function Returns() {
     return subscribeDbChanges(refresh);
   }, []);
 
-  const itemsByInvoice = useMemo(() => {
+  /** Full invoice lines (entire “cart” / sale), same source as Invoices page */
+  const allItemsByInvoice = useMemo(() => {
     const map = new Map<string, LocalInvoiceItem[]>();
     for (const inv of invoices) {
-      const lines = getInvoiceItems(inv.id).filter((it) => (it.returned_quantity ?? 0) > 0);
-      map.set(inv.id, lines);
+      map.set(inv.id, getInvoiceItems(inv.id));
     }
     return map;
   }, [invoices]);
@@ -117,16 +117,17 @@ export default function Returns() {
 
       const rowsHtml =
         lines.length === 0
-          ? `<tr><td colspan="4">${escapeHtml(tx("(Line details unavailable)", "(تفاصيل البنود غير متوفرة)"))}</td></tr>`
+          ? `<tr><td colspan="5">${escapeHtml(tx("(Line details unavailable)", "(تفاصيل البنود غير متوفرة)"))}</td></tr>`
           : lines
               .map((line) => {
                 const rq = line.returned_quantity ?? 0;
-                const back = rq * line.unit_price;
+                const retVal = rq * line.unit_price;
                 return `<tr>
               <td>${escapeHtml(line.product_name)}</td>
-              <td>${rq}</td>
+              <td>${line.quantity}</td>
               <td>${formatMoney(line.unit_price)}</td>
-              <td>${formatMoney(back)}</td>
+              <td>${formatMoney(line.subtotal)}</td>
+              <td>${rq > 0 ? `${rq} (${formatMoney(retVal)})` : "—"}</td>
             </tr>`;
               })
               .join("");
@@ -144,6 +145,7 @@ export default function Returns() {
   <style>
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; color: #111827; font-size: 14px; }
     h1 { font-size: 18px; margin: 0 0 8px; }
+    h2 { font-size: 15px; margin: 16px 0 6px; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
     th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: ${isArabic ? "right" : "left"}; }
     th { background: #f3f4f6; }
@@ -161,14 +163,15 @@ export default function Returns() {
   <p><strong>${escapeHtml(tx("Net after return", "الصافي بعد الإرجاع"))}:</strong> ${escapeHtml(formatMoney(net))}</p>
   <p><strong>${escapeHtml(tx("Payment", "الدفع"))}:</strong> ${escapeHtml(paymentLabel)}</p>
   ${creditLine}
-  <h2 style="font-size:15px;margin:16px 0 6px;">${escapeHtml(tx("Returned lines", "بنود مرتجعة"))}</h2>
+  <h2>${escapeHtml(tx("Full invoice (all lines as sold)", "الفاتورة كاملة (كل البنود كما بيعت)"))}</h2>
   <table>
     <thead>
       <tr>
         <th>${escapeHtml(tx("Product", "الصنف"))}</th>
-        <th>${escapeHtml(tx("Returned qty", "كمية مرتجعة"))}</th>
+        <th>${escapeHtml(tx("Qty (sold on invoice)", "الكمية (مباعة على الفاتورة)"))}</th>
         <th>${escapeHtml(tx("Unit price", "سعر الوحدة"))}</th>
         <th>${escapeHtml(tx("Line total", "إجمالي السطر"))}</th>
+        <th>${escapeHtml(tx("Returned", "مرتجع"))}</th>
       </tr>
     </thead>
     <tbody>${rowsHtml}</tbody>
@@ -283,7 +286,7 @@ export default function Returns() {
             const inv = row.inv;
             const returned = inv.returned_amount ?? 0;
             const net = Math.max(0, inv.total - returned);
-            const lines = itemsByInvoice.get(inv.id) ?? [];
+            const lines = allItemsByInvoice.get(inv.id) ?? [];
             const expanded = openId === inv.id;
             const fullReturn = inv.is_return || net <= 0.0001;
             const statusLabel = fullReturn
@@ -358,36 +361,71 @@ export default function Returns() {
                 </div>
 
                 {expanded && (
-                  <div className="border-t border-border/60 bg-muted/20 px-4 py-3 space-y-2">
+                  <div className="border-t border-border/60 bg-muted/20 px-4 py-3 space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
                       <Package className="w-4 h-4" />
-                      {tx("Returned lines", "بنود مرتجعة")}
+                      {tx("Full invoice (all lines as sold)", "الفاتورة كاملة (كل البنود كما بيعت)")}
                     </p>
                     {lines.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
                         {tx("(Line details unavailable)", "(تفاصيل البنود غير متوفرة)")}
                       </p>
                     ) : (
-                      <ul className="space-y-2">
-                        {lines.map((line) => {
-                          const rq = line.returned_quantity ?? 0;
-                          const back = rq * line.unit_price;
-                          return (
-                            <li
-                              key={line.id}
-                              className="rounded-lg border border-border/50 bg-card/50 px-3 py-2 text-sm flex flex-wrap justify-between gap-2"
-                            >
-                              <span className="font-medium">{line.product_name}</span>
-                              <span className="text-muted-foreground font-mono text-xs">
-                                {tx("Returned qty", "كمية مرتجعة")}: {rq} × {formatMoney(line.unit_price)} ={" "}
-                                <span className="text-destructive font-semibold">{formatMoney(back)}</span>
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                      <div className="rounded-xl border border-border/60 overflow-hidden bg-card/30">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/30 border-b border-border/60">
+                              <th className="text-start p-2 font-semibold">{tx("Product", "المنتج")}</th>
+                              <th className="text-start p-2 font-semibold whitespace-nowrap">
+                                {tx("Qty (sold on invoice)", "الكمية (مباعة)")}
+                              </th>
+                              <th className="text-start p-2 font-semibold whitespace-nowrap">
+                                {tx("Unit Price", "سعر الوحدة")}
+                              </th>
+                              <th className="text-start p-2 font-semibold whitespace-nowrap">
+                                {tx("Line total", "المجموع")}
+                              </th>
+                              <th className="text-start p-2 font-semibold whitespace-nowrap">
+                                {tx("Returned qty", "كمية مرتجعة")}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lines.map((item) => {
+                              const rq = item.returned_quantity ?? 0;
+                              return (
+                                <tr key={item.id} className="border-b border-border/40 last:border-b-0">
+                                  <td className="p-2 font-medium align-top">{item.product_name}</td>
+                                  <td className="p-2 align-top">{item.quantity}</td>
+                                  <td className="p-2 align-top">{formatMoney(item.unit_price)}</td>
+                                  <td className="p-2 font-semibold align-top">{formatMoney(item.subtotal)}</td>
+                                  <td className="p-2 align-top">
+                                    {rq > 0 ? (
+                                      <span className="text-destructive font-medium">
+                                        {rq}
+                                        <span className="text-muted-foreground font-normal">
+                                          {" "}
+                                          ({formatMoney(rq * item.unit_price)})
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground pt-1">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {tx(
+                        "These lines are the same products and quantities as on the original sale invoice.",
+                        "هذه البنود هي نفس المنتجات والكميات كما في فاتورة البيع الأصلية.",
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground pt-1 border-t border-border/40">
                       <span>
                         {tx("Payment", "الدفع")}: {inv.payment_method}
                       </span>

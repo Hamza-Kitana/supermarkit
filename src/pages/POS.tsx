@@ -19,6 +19,8 @@ import {
   addCustomer,
   createInvoice,
   getCustomers,
+  recordPosCartExclusion,
+  removeLastPosCartExclusionForProduct,
   subscribeDbChanges,
   type LocalCustomer,
 } from "@/lib/localDb";
@@ -33,12 +35,14 @@ import {
 } from "@/components/ui/select";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useCreditEnabled } from "@/hooks/useCreditEnabled";
-import { ShoppingBasket, RotateCcw, Search, AlertTriangle, Trash2 } from "lucide-react";
+import { ShoppingBasket, RotateCcw, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CartItem {
   product: Product;
   quantity: number;
+  /** If false: still listed on the ticket but not counted in total or invoice */
+  included: boolean;
 }
 
 export default function POS() {
@@ -66,6 +70,7 @@ export default function POS() {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   /** Cash denomination for the paid-amount field (default: JOD) */
   const [cashPayCurrency, setCashPayCurrency] = useState<string>("JOD");
+  const [fullReturnConfirmOpen, setFullReturnConfirmOpen] = useState(false);
 
   useEffect(() => {
     const refresh = () => setCustomers(getCustomers());
@@ -100,12 +105,14 @@ export default function POS() {
     return products.filter((p) => p.name.includes(search));
   }, [products, search]);
 
+  const includedLines = useMemo(() => cart.filter((i) => i.included), [cart]);
+
   const total = useMemo(
-    () => cart.reduce((sum, item) => {
+    () => includedLines.reduce((sum, item) => {
       const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
       return sum + price * item.quantity;
     }, 0),
-    [cart, saleType]
+    [includedLines, saleType]
   );
 
   const jodPerUnitPay = useMemo(
@@ -180,28 +187,72 @@ export default function POS() {
           return prev;
         }
         return prev.map((i) =>
-          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1, included: true } : i
         );
       }
       const initialQty = saleType === "wholesale" ? productWholesaleMin : 1;
-      return [...prev, { product, quantity: initialQty }];
+      return [...prev, { product, quantity: initialQty, included: true }];
     });
   };
 
-  const clearCartOnly = () => {
-    setCart([]);
-    setPaidAmount("");
-    setCustomerName("");
-    setSelectedCustomerId("");
-    setIsCredit(false);
-    setShowAddCustomer(false);
-    setNewCustomerName("");
-    setNewCustomerPhone("");
-    setPaymentMethod("cash");
-    setCashPayCurrency("JOD");
+  const toggleCartLineIncluded = (productId: string) => {
+    const target = cart.find((i) => i.product.id === productId);
+    if (!target || !user) return;
+
+    const cashierId = user.cashierId ?? user.id;
+    const cashierName =
+      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
+    const unitPrice =
+      saleType === "retail" ? target.product.retail_price : target.product.wholesale_price;
+
+    if (target.included) {
+      recordPosCartExclusion({
+        cashier_id: cashierId,
+        cashier_name: cashierName,
+        product_id: target.product.id,
+        product_name: target.product.name,
+        quantity: target.quantity,
+        sale_type: saleType,
+        unit_price: unitPrice,
+      });
+    } else {
+      removeLastPosCartExclusionForProduct(productId);
+    }
+
+    setCart((prev) =>
+      prev.map((i) => (i.product.id === productId ? { ...i, included: !i.included } : i)),
+    );
+  };
+
+  const confirmFullCartReturn = () => {
+    if (!user) return;
+    const cashierId = user.cashierId ?? user.id;
+    const cashierName =
+      role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user.displayName;
+
+    for (const line of cart) {
+      if (!line.included) continue;
+      const unitPrice =
+        saleType === "retail" ? line.product.retail_price : line.product.wholesale_price;
+      recordPosCartExclusion({
+        cashier_id: cashierId,
+        cashier_name: cashierName,
+        product_id: line.product.id,
+        product_name: line.product.name,
+        quantity: line.quantity,
+        sale_type: saleType,
+        unit_price: unitPrice,
+      });
+    }
+
+    setCart((prev) => prev.map((i) => ({ ...i, included: false })));
+    setFullReturnConfirmOpen(false);
     toast({
-      title: tx("Cart cleared", "تم تفريغ السلة"),
-      description: tx("No sale was recorded.", "لم يُسجّل أي بيع."),
+      title: tx("All lines excluded ✓", "تم استبعاد كل الأسطر ✓"),
+      description: tx(
+        "Recorded under Returns. Tap Complete to close the cart.",
+        "مُسجّل في المرتجعات. اضغط «إتمام» لإغلاق السلة.",
+      ),
     });
   };
 
@@ -221,6 +272,33 @@ export default function POS() {
 
   const checkout = async () => {
     if (!user || cart.length === 0) return;
+    const linesForSale = cart.filter((i) => i.included);
+
+    if (linesForSale.length === 0) {
+      setProcessing(true);
+      try {
+        toast({
+          title: tx("Full return closed ✓", "تم إغلاق الإرجاع الكامل ✓"),
+          description: tx(
+            "Cart cleared. Excluded items remain listed under Returns.",
+            "تم تفريغ السلة. البنود المستبعدة تبقى في المرتجعات.",
+          ),
+        });
+        setCart([]);
+        setPaidAmount("");
+        setCustomerName("");
+        setSelectedCustomerId("");
+        setIsCredit(false);
+        setShowAddCustomer(false);
+        setNewCustomerName("");
+        setNewCustomerPhone("");
+        setPaymentMethod("cash");
+        setCashPayCurrency("JOD");
+      } finally {
+        setProcessing(false);
+      }
+      return;
+    }
     const activeCashierId = user.cashierId ?? user.id;
     const activeCashierName =
       role === "super_admin"
@@ -229,7 +307,7 @@ export default function POS() {
           ? "admin"
           : user.displayName;
     if (!isCredit && saleType === "wholesale") {
-      const invalidItems = cart.filter((item) => item.quantity < item.product.wholesale_min_qty);
+      const invalidItems = linesForSale.filter((item) => item.quantity < item.product.wholesale_min_qty);
       if (invalidItems.length > 0) {
         const invalidNames = invalidItems
           .map((item) => `${item.product.name} (${item.product.wholesale_min_qty})`)
@@ -265,7 +343,7 @@ export default function POS() {
 
     setProcessing(true);
     try {
-      const items = cart.map((item) => ({
+      const items = linesForSale.map((item) => ({
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
@@ -399,14 +477,15 @@ export default function POS() {
                 className={cn(
                   "pos-btn relative",
                   isDisabled && "pos-btn-disabled",
-                  inCart && "pos-btn-active",
+                  /* Highlight & qty chip only for active lines; excluded state is visible only in the cart */
+                  inCart?.included && "pos-btn-active",
                 )}
                 disabled={isDisabled}
               >
                 {lowStock && (
                   <AlertTriangle className="absolute top-1 left-1 w-3.5 h-3.5 text-warning" />
                 )}
-                {inCart && (
+                {inCart?.included && (
                   <span className="absolute top-1 right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs flex items-center justify-center font-bold bg-primary text-primary-foreground">
                     {inCart.quantity}
                   </span>
@@ -458,14 +537,14 @@ export default function POS() {
           <ShoppingBasket className="w-5 h-5 text-primary shrink-0" />
           <h2 className="font-bold text-lg">{tx("Cart", "السلة")}</h2>
           <span className="text-sm text-muted-foreground ms-auto">
-            {cart.length} {tx("lines", "سطر")}
+            {includedLines.length}/{cart.length} {tx("active / lines", "مفعّل / أسطر")}
           </span>
         </div>
         {cart.length > 0 && (
           <p className="px-4 pb-2 text-[11px] text-muted-foreground leading-snug -mt-2">
             {tx(
-              "Change quantity from the product grid (tap the product to add more). The invoice includes every line in the cart.",
-              "عدّل الكمية من شبكة المنتجات (اضغط المنتج لزيادة الكمية). الفاتورة تشمل كل أسطر السلة.",
+              "Change quantity only from the product grid (tap product to add). Tap a cart row to exclude it from the total — not sold; line stays in red.",
+              "عدّل الكمية من شبكة المنتجات فقط (اضغط المنتج لزيادتها). اضغط سطراً في السلة لاستبعاده من المجموع دون بيعه؛ يبقى بالأحمر.",
             )}
           </p>
         )}
@@ -480,13 +559,44 @@ export default function POS() {
               return (
                 <div
                   key={item.product.id}
-                  className="flex items-center gap-2 rounded-xl p-2 border border-border/60 bg-muted/50"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleCartLineIncluded(item.product.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleCartLineIncluded(item.product.id);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl p-2 border-2 transition-colors cursor-pointer select-none",
+                    item.included
+                      ? "bg-muted/50 border-transparent"
+                      : "bg-destructive/8 border-destructive/50",
+                  )}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{item.product.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p
+                      className={cn(
+                        "text-sm font-semibold truncate",
+                        !item.included && "text-destructive line-through decoration-destructive/80",
+                      )}
+                    >
+                      {item.product.name}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xs",
+                        item.included ? "text-muted-foreground" : "text-destructive/90",
+                      )}
+                    >
                       {formatMoney(price)} × {item.quantity} = {formatMoney(lineTotal)}
                     </p>
+                    {!item.included && (
+                      <p className="text-[10px] font-bold text-destructive mt-0.5">
+                        {tx("Excluded from total", "مستبعد من المجموع")}
+                      </p>
+                    )}
                   </div>
                   <div className="shrink-0 rounded-lg bg-muted/80 px-2.5 py-1.5 min-w-[2.5rem] text-center">
                     <span className="text-xs text-muted-foreground block leading-none">{tx("Qty", "الكمية")}</span>
@@ -498,16 +608,15 @@ export default function POS() {
           )}
         </div>
 
-        {cart.length > 0 && (
+        {cart.length > 0 && includedLines.length > 0 && (
           <div className="px-3 pt-2">
             <Button
               type="button"
               variant="outline"
-              className="w-full rounded-xl text-muted-foreground"
-              onClick={clearCartOnly}
+              className="w-full rounded-xl border-destructive/50 text-destructive hover:bg-destructive/10"
+              onClick={() => setFullReturnConfirmOpen(true)}
             >
-              <Trash2 className="w-4 h-4" />
-              {tx("Clear cart (no sale)", "تفريغ السلة (بدون بيع)")}
+              {tx("Full return — exclude all lines", "إرجاع كامل — استبعاد كل الأسطر")}
             </Button>
           </div>
         )}
@@ -775,7 +884,8 @@ export default function POS() {
             disabled={
               cart.length === 0
               || processing
-              || (!isCredit
+              || (includedLines.length > 0
+                && !isCredit
                 && paymentMethod === "cash"
                 && paidInShopCurrency + 1e-6 < total)
             }
@@ -783,14 +893,43 @@ export default function POS() {
           >
             {processing
               ? tx("Processing...", "جاري المعالجة...")
-              : isCredit
-                ? tx("Complete Credit", "إتمام الدين")
-                : tx("Complete Sale", "إتمام البيع")}
+              : includedLines.length === 0 && cart.length > 0
+                ? tx("Complete — close full return", "إتمام — إغلاق الإرجاع الكامل")
+                : isCredit
+                  ? tx("Complete Credit", "إتمام الدين")
+                  : tx("Complete Sale", "إتمام البيع")}
           </Button>
         </div>
       </div>
 
       <ReturnDialog open={returnOpen} onOpenChange={setReturnOpen} />
+      <AlertDialog
+        open={fullReturnConfirmOpen}
+        onOpenChange={setFullReturnConfirmOpen}
+      >
+        <AlertDialogContent dir={isArabic ? "rtl" : "ltr"}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {tx("Confirm full return", "تأكيد الإرجاع الكامل")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx(
+                "All cart lines will be marked not sold (red) and logged under Returns. You can then tap Complete to close the cart with no sale.",
+                "سيتم استبعاد كل أسطر السلة (بالأحمر) وتسجيلها في المرتجعات. بعدها يمكنك الضغط على «إتمام» لإغلاق السلة دون بيع.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tx("Cancel", "إلغاء")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmFullCartReturn}
+            >
+              {tx("Confirm full return", "تأكيد الإرجاع الكامل")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={saleTypeConfirmOpen}
         onOpenChange={(open) => {

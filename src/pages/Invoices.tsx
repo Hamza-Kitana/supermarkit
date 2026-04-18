@@ -581,6 +581,13 @@ export default function Invoices() {
                 </div>
               </div>
 
+              <p className="text-sm text-muted-foreground rounded-lg bg-muted/30 px-3 py-2 border border-border/50">
+                {tx(
+                  "These products were purchased on this invoice as a normal sale. Quantities and line totals below show what remains after any returns (remaining / originally sold).",
+                  "هذه المنتجات وُجدت كشراء اعتيادي على هذه الفاتورة. الكميات والمجاميع أدناه تعكس ما بقي بعد أي إرجاع (المتبقي / المباع أصلاً).",
+                )}
+              </p>
+
               <div className="rounded-xl border overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
