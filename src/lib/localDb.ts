@@ -67,6 +67,38 @@ export interface LocalInvoice {
   pos_exclusion_only?: boolean;
 }
 
+/** Stored in invoice `notes` — full basket face value for display (sold + excluded qty). Sale lines stay stock-accurate. */
+export type CartFullDisplaySnapshot = {
+  grossTotal: number;
+  lines: Array<{
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    line_gross: number;
+  }>;
+};
+
+const CART_FULL_DISPLAY_PREFIX = "__cart_full__:";
+
+export function serializeCartFullDisplay(s: CartFullDisplaySnapshot): string {
+  return CART_FULL_DISPLAY_PREFIX + JSON.stringify(s);
+}
+
+export function parseCartFullDisplay(notes: string | null | undefined): CartFullDisplaySnapshot | null {
+  if (!notes?.startsWith(CART_FULL_DISPLAY_PREFIX)) return null;
+  try {
+    return JSON.parse(notes.slice(CART_FULL_DISPLAY_PREFIX.length)) as CartFullDisplaySnapshot;
+  } catch {
+    return null;
+  }
+}
+
+/** Total shown on Invoices: full basket if snapshot exists, else invoice total. */
+export function invoiceDisplayGrossTotal(inv: LocalInvoice): number {
+  const snap = parseCartFullDisplay(inv.notes);
+  return snap?.grossTotal ?? inv.total;
+}
+
 export interface LocalInvoiceItem {
   id: string;
   invoice_id: string;
@@ -523,6 +555,8 @@ export function createInvoice(params: {
     unit_price: number;
     subtotal: number;
   }>;
+  /** Full cart lines for Invoices UI (entire basket incl. excluded); stock still uses `items` quantities. */
+  cart_full_display?: CartFullDisplaySnapshot;
 }) {
   const state = readState();
   const invoiceId = newId();
@@ -545,7 +579,7 @@ export function createInvoice(params: {
     is_return: false,
     deleted_at: null,
     return_approved_by: null,
-    notes: null,
+    notes: params.cart_full_display ? serializeCartFullDisplay(params.cart_full_display) : null,
     created_at: now,
     pos_exclusion_only: false,
   };

@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import {
   getInvoiceItems,
   getInvoiceReturnSummary,
+  invoiceDisplayGrossTotal,
+  parseCartFullDisplay,
   removeInvoice,
   type LocalInvoiceItem,
 } from "@/lib/localDb";
@@ -225,10 +227,14 @@ export default function Invoices() {
 
   const selectedInvoice = viewInvoiceId ? invoices.find((inv) => inv.id === viewInvoiceId) ?? null : null;
   const selectedItems = viewInvoiceId ? (items[viewInvoiceId] ?? getInvoiceItems(viewInvoiceId)) : [];
+  const selectedCartSnap = useMemo(() => {
+    if (!selectedInvoice) return null;
+    return parseCartFullDisplay(selectedInvoice.notes);
+  }, [selectedInvoice]);
   const todayGrossTotal = filtered.reduce((sum, inv) => {
     const isToday = new Date(inv.created_at).toDateString() === new Date().toDateString();
     if (!isToday) return sum;
-    return sum + inv.total;
+    return sum + invoiceDisplayGrossTotal(inv);
   }, 0);
 
   return (
@@ -425,7 +431,7 @@ export default function Invoices() {
                 <th className="text-right p-3 font-semibold">{tx("Type", "النوع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Cashier", "الكاشير")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Payment", "الدفع")}</th>
-                <th className="text-right p-3 font-semibold">{tx("Total (original)", "المجموع (أصلي)")}</th>
+                <th className="text-right p-3 font-semibold">{tx("Basket total (face)", "إجمالي السلة")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Paid", "المدفوع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Change", "الباقي")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Status", "الحالة")}</th>
@@ -473,7 +479,7 @@ export default function Invoices() {
                         </span>
                       )}
                     </td>
-                    <td className="p-3 font-bold">{formatMoney(inv.total)}</td>
+                    <td className="p-3 font-bold">{formatMoney(invoiceDisplayGrossTotal(inv))}</td>
                     <td className="p-3">{formatMoney(inv.paid)}</td>
                     <td className="p-3">{formatMoney(inv.change_amount)}</td>
                     <td className="p-3">
@@ -514,7 +520,7 @@ export default function Invoices() {
       </div>
 
       <div className="glass-card rounded-2xl p-4">
-        <p className="text-sm text-muted-foreground">{tx("Today's Total (original invoice amounts)", "مجموع اليوم (إجمالي الفواتير الأصلية)")}</p>
+        <p className="text-sm text-muted-foreground">{tx("Today's basket totals (face)", "مجموع اليوم (إجمالي السلة المعروض)")}</p>
         <p className="text-2xl font-bold text-primary">{formatMoney(todayGrossTotal)}</p>
       </div>
 
@@ -566,10 +572,16 @@ export default function Invoices() {
                       : tx("No return yet", "لا يوجد إرجاع بعد")}
                   </p>
                 </div>
-                <div className="rounded-lg bg-muted/40 p-2">
-                  <p className="text-muted-foreground">{tx("Original Total", "الإجمالي الأصلي")}</p>
-                  <p className="font-bold">{formatMoney(selectedInvoice.total)}</p>
+                <div className="rounded-lg bg-primary/10 p-2 border border-primary/20">
+                  <p className="text-muted-foreground">{tx("Full basket (all lines)", "إجمالي السلة (كل الأسطر)")}</p>
+                  <p className="font-bold text-lg text-primary">{formatMoney(invoiceDisplayGrossTotal(selectedInvoice))}</p>
                 </div>
+                {selectedCartSnap && (
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <p className="text-muted-foreground">{tx("Charged sale amount", "مبلغ البيع المحسوم")}</p>
+                    <p className="font-bold">{formatMoney(selectedInvoice.total)}</p>
+                  </div>
+                )}
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Net After Returns", "الصافي بعد المرتجعات")}</p>
                   <p className="font-bold text-primary">{formatMoney(getInvoiceReturnSummary(selectedInvoice.id).netAmount)}</p>
@@ -593,6 +605,13 @@ export default function Invoices() {
                     "إغلاق إرجاع كامل للسلة: يظهر هنا كإيصال كاش اعتيادي (كاش، المدفوع = الإجمالي). قيم الأسطر كالسلة المستبعدة؛ لم يُبَع المخزون في هذه العملية.",
                   )}
                 </p>
+              ) : selectedCartSnap ? (
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted/30 px-3 py-2 border border-border/50">
+                  {tx(
+                    "Table shows every line that was in the cart (sold + excluded). Charged amount and payment match the actual sale only.",
+                    "الجدول يعرض كل أسطر السلة (المباع والمستبعد). المبلغ المحسوم والدفع يطابقان البيع الفعلي فقط.",
+                  )}
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground rounded-lg bg-muted/30 px-3 py-2 border border-border/50">
                   {tx(
@@ -609,29 +628,40 @@ export default function Invoices() {
                       <th className="text-right p-2">{tx("Product", "المنتج")}</th>
                       <th className="text-right p-2">{tx("Quantity", "الكمية")}</th>
                       <th className="text-right p-2">{tx("Unit Price", "سعر الوحدة")}</th>
-                      <th className="text-right p-2">{tx("Total", "المجموع")}</th>
+                      <th className="text-right p-2">{tx("Line total", "مجموع السطر")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedItems.map((item) => {
-                      const rq = item.returned_quantity ?? 0;
-                      return (
-                        <tr key={item.id} className="border-b last:border-b-0">
-                          <td className="p-2 font-medium">{item.product_name}</td>
-                          <td className="p-2">
-                            {item.quantity}
-                            {rq > 0 && (
-                              <span className="text-destructive text-xs font-medium ms-1">
-                                ({tx("returned", "مرتجع")} {rq})
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-2">{formatMoney(item.unit_price)}</td>
-                          <td className="p-2 font-bold">{formatMoney(item.subtotal)}</td>
+                    {selectedCartSnap ? (
+                      selectedCartSnap.lines.map((line, idx) => (
+                        <tr key={`snap-${idx}`} className="border-b last:border-b-0">
+                          <td className="p-2 font-medium">{line.product_name}</td>
+                          <td className="p-2">{line.quantity}</td>
+                          <td className="p-2">{formatMoney(line.unit_price)}</td>
+                          <td className="p-2 font-bold">{formatMoney(line.line_gross)}</td>
                         </tr>
-                      );
-                    })}
-                    {selectedItems.length === 0 && (
+                      ))
+                    ) : (
+                      selectedItems.map((item) => {
+                        const rq = item.returned_quantity ?? 0;
+                        return (
+                          <tr key={item.id} className="border-b last:border-b-0">
+                            <td className="p-2 font-medium">{item.product_name}</td>
+                            <td className="p-2">
+                              {item.quantity}
+                              {rq > 0 && (
+                                <span className="text-destructive text-xs font-medium ms-1">
+                                  ({tx("returned", "مرتجع")} {rq})
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2">{formatMoney(item.unit_price)}</td>
+                            <td className="p-2 font-bold">{formatMoney(item.subtotal)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                    {!selectedCartSnap && selectedItems.length === 0 && (
                       <tr>
                         <td colSpan={4} className="p-4 text-center text-muted-foreground">{tx("No items in this invoice", "لا توجد عناصر في هذه الفاتورة")}</td>
                       </tr>

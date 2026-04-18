@@ -30,6 +30,7 @@ import {
   notifyLocalDbChanged,
   recordPosCartExclusionsBatch,
   subscribeDbChanges,
+  type CartFullDisplaySnapshot,
   type LocalCustomer,
 } from "@/lib/localDb";
 import { CASH_PAY_OPTIONS, cashPayLabel } from "@/lib/cashPayCurrencies";
@@ -420,6 +421,23 @@ export default function POS() {
         };
       });
 
+      const cart_full_display: CartFullDisplaySnapshot = {
+        grossTotal: cart.reduce((sum, i) => {
+          const up = saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
+          return sum + up * i.quantity;
+        }, 0),
+        lines: cart.map((i) => {
+          const up = saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
+          const q = i.quantity;
+          return {
+            product_name: i.product.name,
+            quantity: q,
+            unit_price: up,
+            line_gross: up * q,
+          };
+        }),
+      };
+
       const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
       const finalCustomerName = isCredit
         ? (selectedCustomer?.name ?? customerName.trim())
@@ -440,36 +458,8 @@ export default function POS() {
         customer_phone: finalCustomerPhone,
         payment_method: isCredit ? "cash" : paymentMethod,
         items,
+        cart_full_display,
       });
-
-      const excludedValue = cart.reduce((sum, i) => {
-        if (i.excludedQuantity <= 0) return sum;
-        const unit_price =
-          saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
-        return sum + unit_price * i.excludedQuantity;
-      }, 0);
-      if (excludedValue > 0.0001) {
-        const exItems = cart
-          .filter((i) => i.excludedQuantity > 0)
-          .map((i) => {
-            const unit_price =
-              saleType === "retail" ? i.product.retail_price : i.product.wholesale_price;
-            return {
-              product_id: i.product.id,
-              product_name: i.product.name,
-              quantity: i.excludedQuantity,
-              unit_cost: i.product.cost_price ?? 0,
-              unit_price,
-              subtotal: unit_price * i.excludedQuantity,
-            };
-          });
-        createPosExclusionCloseInvoice({
-          cashier_id: activeCashierId,
-          cashier_name: activeCashierName,
-          sale_type: saleType,
-          items: exItems,
-        });
-      }
 
       toast({
         title: isCredit
