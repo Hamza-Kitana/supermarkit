@@ -225,10 +225,10 @@ export default function Invoices() {
 
   const selectedInvoice = viewInvoiceId ? invoices.find((inv) => inv.id === viewInvoiceId) ?? null : null;
   const selectedItems = viewInvoiceId ? (items[viewInvoiceId] ?? getInvoiceItems(viewInvoiceId)) : [];
-  const todayNetTotal = filtered.reduce((sum, inv) => {
+  const todayGrossTotal = filtered.reduce((sum, inv) => {
     const isToday = new Date(inv.created_at).toDateString() === new Date().toDateString();
     if (!isToday) return sum;
-    return sum + getInvoiceReturnSummary(inv.id).netAmount;
+    return sum + inv.total;
   }, 0);
 
   return (
@@ -425,7 +425,7 @@ export default function Invoices() {
                 <th className="text-right p-3 font-semibold">{tx("Type", "النوع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Cashier", "الكاشير")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Payment", "الدفع")}</th>
-                <th className="text-right p-3 font-semibold">{tx("Total", "المجموع")}</th>
+                <th className="text-right p-3 font-semibold">{tx("Total (original)", "المجموع (أصلي)")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Paid", "المدفوع")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Change", "الباقي")}</th>
                 <th className="text-right p-3 font-semibold">{tx("Status", "الحالة")}</th>
@@ -473,7 +473,7 @@ export default function Invoices() {
                         </span>
                       )}
                     </td>
-                    <td className="p-3 font-bold">{formatMoney(getInvoiceReturnSummary(inv.id).netAmount)}</td>
+                    <td className="p-3 font-bold">{formatMoney(inv.total)}</td>
                     <td className="p-3">{formatMoney(inv.paid)}</td>
                     <td className="p-3">{formatMoney(inv.change_amount)}</td>
                     <td className="p-3">
@@ -514,8 +514,8 @@ export default function Invoices() {
       </div>
 
       <div className="glass-card rounded-2xl p-4">
-        <p className="text-sm text-muted-foreground">{tx("Today's Total (Net)", "مجموع اليوم (صافي)")}</p>
-        <p className="text-2xl font-bold text-primary">{formatMoney(todayNetTotal)}</p>
+        <p className="text-sm text-muted-foreground">{tx("Today's Total (original invoice amounts)", "مجموع اليوم (إجمالي الفواتير الأصلية)")}</p>
+        <p className="text-2xl font-bold text-primary">{formatMoney(todayGrossTotal)}</p>
       </div>
 
       <Dialog open={Boolean(viewInvoiceId)} onOpenChange={() => setViewInvoiceId(null)}>
@@ -596,8 +596,8 @@ export default function Invoices() {
               ) : (
                 <p className="text-sm text-muted-foreground rounded-lg bg-muted/30 px-3 py-2 border border-border/50">
                   {tx(
-                    "These products were purchased on this invoice as a normal sale. Quantities and line totals below show what remains after any returns (remaining / originally sold).",
-                    "هذه المنتجات وُجدت كشراء اعتيادي على هذه الفاتورة. الكميات والمجاميع أدناه تعكس ما بقي بعد أي إرجاع (المتبقي / المباع أصلاً).",
+                    "Line quantities and amounts below are the original sale (full values). Net after returns is shown above as “Net After Returns”.",
+                    "الكميات والمجاميع أدناه هي البيع الأصلي (القيم الكاملة). الصافي بعد المرتجعات يظهر أعلاه في «الصافي بعد المرتجعات».",
                   )}
                 </p>
               )}
@@ -614,13 +614,20 @@ export default function Invoices() {
                   </thead>
                   <tbody>
                     {selectedItems.map((item) => {
-                      const netQty = item.quantity - (item.returned_quantity ?? 0);
+                      const rq = item.returned_quantity ?? 0;
                       return (
                         <tr key={item.id} className="border-b last:border-b-0">
                           <td className="p-2 font-medium">{item.product_name}</td>
-                          <td className="p-2">{netQty} / {item.quantity}</td>
+                          <td className="p-2">
+                            {item.quantity}
+                            {rq > 0 && (
+                              <span className="text-destructive text-xs font-medium ms-1">
+                                ({tx("returned", "مرتجع")} {rq})
+                              </span>
+                            )}
+                          </td>
                           <td className="p-2">{formatMoney(item.unit_price)}</td>
-                          <td className="p-2 font-bold">{formatMoney(item.unit_price * netQty)}</td>
+                          <td className="p-2 font-bold">{formatMoney(item.subtotal)}</td>
                         </tr>
                       );
                     })}
