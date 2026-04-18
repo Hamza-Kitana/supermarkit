@@ -10,8 +10,8 @@ export type Invoice = LocalInvoice;
 export type InvoiceItem = LocalInvoiceItem;
 
 export function useInvoices() {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [invoices, setInvoices] = useState<Invoice[]>(() => getInvoices());
+  const [loading, setLoading] = useState(false);
 
   const fetchInvoices = () => {
     setInvoices(getInvoices());

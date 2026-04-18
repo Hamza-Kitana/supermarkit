@@ -41,8 +41,8 @@ export default function Returns() {
   const { formatMoney } = useCurrency();
   const { tx, isArabic } = useLanguage();
   const { toast } = useToast();
-  const [invoices, setInvoices] = useState<LocalInvoice[]>([]);
-  const [cartExclusions, setCartExclusions] = useState<LocalPosCartExclusion[]>([]);
+  const [invoices, setInvoices] = useState<LocalInvoice[]>(() => getInvoicesWithReturns());
+  const [cartExclusions, setCartExclusions] = useState<LocalPosCartExclusion[]>(() => getPosCartExclusions());
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {

@@ -39,7 +39,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const accountName = user?.displayName?.trim() || roleLabel;
 
   return (
-    <div className="min-h-screen flex" dir={isArabic ? "rtl" : "ltr"}>
+    <div className="h-[100dvh] min-h-0 flex overflow-hidden" dir={isArabic ? "rtl" : "ltr"}>
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-foreground/30 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
@@ -132,8 +132,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className={cn("flex-1 min-h-screen min-w-0", isArabic ? "lg:mr-64" : "lg:ml-64")}>
-        <header className="h-16 border-b border-border flex items-center px-3 sm:px-4 lg:px-6 bg-card/50 backdrop-blur-sm sticky top-0 z-30">
+      <main
+        className={cn(
+          "flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden",
+          isArabic ? "lg:mr-64" : "lg:ml-64",
+        )}
+      >
+        <header className="h-16 shrink-0 border-b border-border flex items-center px-3 sm:px-4 lg:px-6 bg-card/50 backdrop-blur-sm z-30">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
@@ -143,7 +148,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               : "Supermarket"}
           </h1>
         </header>
-        <div className="p-3 sm:p-4 lg:p-6">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 sm:p-4 lg:p-6 [scrollbar-gutter:stable]">
+          {children}
+        </div>
       </main>
     </div>
   );

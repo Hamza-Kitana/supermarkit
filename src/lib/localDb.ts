@@ -244,8 +244,21 @@ function makePlaceholderImage(label: string, hue: number) {
 }
 
 export function subscribeDbChanges(callback: () => void) {
-  window.addEventListener(DB_EVENT, callback);
-  return () => window.removeEventListener(DB_EVENT, callback);
+  const run = () => callback();
+  window.addEventListener(DB_EVENT, run);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY && e.newValue != null) run();
+  };
+  window.addEventListener("storage", onStorage);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") run();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    window.removeEventListener(DB_EVENT, run);
+    window.removeEventListener("storage", onStorage);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 }
 
 export function getProducts() {

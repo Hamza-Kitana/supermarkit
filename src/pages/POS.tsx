@@ -411,7 +411,7 @@ export default function POS() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 min-h-[calc(100vh-7rem)] lg:h-[calc(100vh-7rem)]" dir={isArabic ? "rtl" : "ltr"}>
+    <div className="flex flex-col lg:flex-row gap-4 min-h-0 h-full lg:min-h-[28rem]" dir={isArabic ? "rtl" : "ltr"}>
       {/* Products Grid */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center gap-3 mb-4 flex-wrap">
