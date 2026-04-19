@@ -6,51 +6,53 @@
 
 @layer base {
   :root {
-    --background: 145 14% 85%;
-    --foreground: 150 22% 12%;
+    /* Dark red / burgundy cash theme — warm neutrals, primary deep crimson */
+    --background: 350 18% 92%;
+    --foreground: 350 28% 11%;
 
-    --card: 150 10% 91%;
-    --card-foreground: 150 22% 12%;
+    --card: 350 14% 95%;
+    --card-foreground: 350 28% 11%;
 
-    --popover: 150 10% 91%;
-    --popover-foreground: 150 22% 12%;
+    --popover: 350 14% 95%;
+    --popover-foreground: 350 28% 11%;
 
-    --primary: 152 60% 36%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 355 58% 32%;
+    --primary-foreground: 0 0% 98%;
 
-    --secondary: 145 14% 76%;
-    --secondary-foreground: 150 20% 15%;
+    --secondary: 350 16% 82%;
+    --secondary-foreground: 350 32% 14%;
 
-    --muted: 145 10% 72%;
-    --muted-foreground: 150 8% 27%;
+    --muted: 350 12% 78%;
+    --muted-foreground: 350 14% 32%;
 
-    --accent: 38 92% 50%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 8 70% 44%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 145 9% 60%;
-    --input: 145 9% 60%;
-    --ring: 152 60% 36%;
+    --border: 350 14% 68%;
+    --input: 350 14% 68%;
+    --ring: 355 58% 32%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 150 25% 12%;
-    --sidebar-foreground: 140 15% 90%;
-    --sidebar-primary: 152 60% 45%;
+    --sidebar-background: 350 42% 9%;
+    --sidebar-foreground: 350 12% 94%;
+    --sidebar-primary: 355 55% 46%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 150 20% 18%;
-    --sidebar-accent-foreground: 140 15% 90%;
-    --sidebar-border: 150 15% 20%;
-    --sidebar-ring: 152 60% 45%;
+    --sidebar-accent: 350 32% 15%;
+    --sidebar-accent-foreground: 350 10% 92%;
+    --sidebar-border: 350 28% 16%;
+    --sidebar-ring: 355 55% 46%;
 
-    --success: 152 60% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --info: 210 80% 50%;
-    --info-foreground: 0 0% 100%;
+    /* Keep success / warning / info readable vs red UI */
+    --success: 145 42% 30%;
+    --success-foreground: 0 0% 98%;
+    --warning: 32 88% 48%;
+    --warning-foreground: 0 0% 12%;
+    --info: 215 55% 42%;
+    --info-foreground: 0 0% 98%;
   }
 }
 

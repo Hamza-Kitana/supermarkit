@@ -17,6 +17,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -44,7 +45,15 @@ import {
 } from "@/components/ui/select";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useCreditEnabled } from "@/hooks/useCreditEnabled";
-import { ShoppingBasket, RotateCcw, Search, AlertTriangle } from "lucide-react";
+import {
+  ShoppingBasket,
+  RotateCcw,
+  Search,
+  AlertTriangle,
+  Package,
+  ScanLine,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CartItem {
@@ -60,7 +69,7 @@ function saleQty(item: CartItem) {
 
 export default function POS() {
   const { user, role } = useAuth();
-  const { products } = useProducts();
+  const { products, categories } = useProducts();
   const { toast } = useToast();
   const { formatMoney, currency, getJodPerUnit, formatCashPay } = useCurrency();
   const { tx, isArabic } = useLanguage();
@@ -86,6 +95,9 @@ export default function POS() {
   const [fullReturnConfirmOpen, setFullReturnConfirmOpen] = useState(false);
   const [excludeDialogProductId, setExcludeDialogProductId] = useState<string | null>(null);
   const [excludeQtyDraft, setExcludeQtyDraft] = useState("");
+  const [productsPickerOpen, setProductsPickerOpen] = useState(false);
+  const [itemLookupOpen, setItemLookupOpen] = useState(false);
+  const [lookupSearch, setLookupSearch] = useState("");
 
   useEffect(() => {
     const refresh = () => setCustomers(getCustomers());
@@ -119,6 +131,20 @@ export default function POS() {
     if (!search) return products;
     return products.filter((p) => p.name.includes(search));
   }, [products, search]);
+
+  const categoryNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) {
+      m.set(c.id, c.name);
+    }
+    return m;
+  }, [categories]);
+
+  const lookupFilteredProducts = useMemo(() => {
+    const q = lookupSearch.trim().toLowerCase();
+    const list = !q ? products.slice() : products.filter((p) => p.name.toLowerCase().includes(q));
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, lookupSearch]);
 
   const includedLines = useMemo(() => cart.filter((i) => saleQty(i) > 0), [cart]);
 
@@ -499,22 +525,26 @@ export default function POS() {
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-0 h-full lg:min-h-[28rem]" dir={isArabic ? "rtl" : "ltr"}>
-      {/* Products Grid */}
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
+      {/* Main: scanner area + cart (sale flow). Products grid lives in a dialog. */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap shrink-0">
           <div className="flex bg-muted rounded-xl p-1 w-full sm:w-auto">
             <button
+              type="button"
               onClick={() => askSaleTypeChange("retail")}
-                className={cn("flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                saleType === "retail" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+              className={cn(
+                "flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                saleType === "retail" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground",
               )}
             >
               {tx("Retail", "مفرق")}
             </button>
             <button
+              type="button"
               onClick={() => askSaleTypeChange("wholesale")}
-                className={cn("flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                saleType === "wholesale" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+              className={cn(
+                "flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                saleType === "wholesale" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground",
               )}
             >
               {tx("Wholesale", "جملة")}
@@ -525,198 +555,212 @@ export default function POS() {
               {tx("Each product has its own wholesale minimum quantity", "كل منتج له حد أدنى مستقل للبيع بالجملة")}
             </div>
           )}
-          <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder={tx("Search product...", "بحث عن منتج...")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pr-10 rounded-xl"
-            />
+          <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
+            <div className="text-xs px-3 py-2 rounded-lg bg-muted/70 text-muted-foreground">
+              {tx("Selling as", "البيع باسم")}:{" "}
+              <span className="font-semibold text-foreground">
+                {role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user?.displayName}
+              </span>
+            </div>
+            <Button variant="outline" className="rounded-xl gap-2" onClick={() => setReturnOpen(true)}>
+              <RotateCcw className="w-4 h-4" />
+              {tx("Return", "إرجاع")}
+            </Button>
+            <Button className="rounded-xl gap-2 shadow-sm" onClick={() => setProductsPickerOpen(true)}>
+              <Package className="w-4 h-4" />
+              {tx("Browse products", "اختيار المنتجات")}
+            </Button>
           </div>
-          <div className="text-xs px-3 py-2 rounded-lg bg-muted/70 text-muted-foreground">
-            {tx("Selling as", "البيع باسم")}:{" "}
-            <span className="font-semibold text-foreground">
-              {role === "super_admin" ? "Sadmin" : role === "admin" ? "admin" : user?.displayName}
-            </span>
-          </div>
-          <Button variant="outline" className="rounded-xl gap-2 w-full sm:w-auto" onClick={() => setReturnOpen(true)}>
-            <RotateCcw className="w-4 h-4" />
-            {tx("Return", "إرجاع")}
-          </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 [grid-auto-rows:1fr] content-start min-h-[320px]">
-          {filteredProducts.map((product) => {
-            const outOfStock = product.stock <= 0;
-            const notAvailableForSaleType = saleType === "retail" ? !product.sell_retail : !product.sell_wholesale;
-            const wholesaleStockBelowMin =
-              saleType === "wholesale" && product.stock < Math.max(1, product.wholesale_min_qty || 1);
-            const isDisabled = outOfStock || notAvailableForSaleType || wholesaleStockBelowMin;
-            const lowStock = product.stock > 0 && product.stock <= product.min_stock;
-            const price = saleType === "retail" ? product.retail_price : product.wholesale_price;
-            const inCart = cart.find((i) => i.product.id === product.id);
-            const inCartSaleQty = inCart ? saleQty(inCart) : 0;
+        <div className="rounded-2xl border-2 border-dashed border-primary/25 bg-primary/5 px-4 py-3 shrink-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+            <ScanLine className="w-5 h-5 text-primary shrink-0" />
+            {tx("Barcode scanner", "مسح الباركود")}
+            <span className="text-xs font-normal text-muted-foreground">
+              ({tx("linking later", "ربط لاحقاً")})
+            </span>
+          </div>
+          <Input
+            readOnly
+            aria-readonly
+            tabIndex={-1}
+            className="h-14 rounded-xl border-primary/20 bg-background/80 text-base font-medium pointer-events-none opacity-90"
+            placeholder={tx(
+              "When the scanner is connected, items will jump into the cart from here.",
+              "عند ربط السكنر، ستُضاف المنتجات للسلة من هنا مباشرة.",
+            )}
+            value=""
+          />
+        </div>
 
-            return (
-              <button
-                key={product.id}
-                onClick={() => !isDisabled && addToCart(product)}
-                className={cn(
-                  "pos-btn relative",
-                  isDisabled && "pos-btn-disabled",
-                  /* Highlight & qty chip only for active lines; excluded state is visible only in the cart */
-                  inCartSaleQty > 0 && "pos-btn-active",
+        <div className="glass-card rounded-2xl flex flex-col flex-1 min-h-0 lg:max-h-[calc(100vh-10rem)]">
+          <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap shrink-0">
+            <ShoppingBasket className="w-5 h-5 text-primary shrink-0" />
+            <h2 className="font-bold text-lg">{tx("Cart", "السلة")}</h2>
+            <span className="text-sm text-muted-foreground ms-auto">
+              {includedLines.length}/{cart.length} {tx("active / lines", "مفعّل / أسطر")}
+            </span>
+          </div>
+          {cart.length > 0 && (
+            <p className="px-4 pb-2 text-[11px] text-muted-foreground leading-snug -mt-2 shrink-0">
+              {tx(
+                "Use Browse products to add lines, or the scanner when it is ready. Tap a cart row to exclude units (logged on complete).",
+                "استخدم «اختيار المنتجات» لإضافة أسطر، أو السكنر عند جاهزيته. اضغط سطراً في السلة لاستبعاد وحدات (يُسجّل عند الإتمام).",
+              )}
+            </p>
+          )}
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+            {cart.length === 0 ? (
+              <div className="text-center text-muted-foreground py-16 text-sm px-4">
+                {tx(
+                  "Cart is empty — scan a barcode (soon) or open Browse products.",
+                  "السلة فارغة — امسح الباركود (قريباً) أو افتح «اختيار المنتجات».",
                 )}
-                disabled={isDisabled}
-              >
-                {lowStock && (
-                  <AlertTriangle className="absolute top-1 left-1 w-3.5 h-3.5 text-warning" />
-                )}
-                {inCart && inCart.quantity > 0 && (
-                  <span className="absolute top-1 right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs flex items-center justify-center font-bold bg-primary text-primary-foreground">
-                    {inCart.quantity}
-                  </span>
-                )}
-                {product.image_url && (
-                  <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="w-full h-20 rounded-lg object-cover border border-border/40"
-                  />
-                )}
-                {!product.image_url && (
-                  <div className="w-full h-20 rounded-lg border border-dashed border-border/70 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground">
-                    {tx("No image", "بدون صورة")}
+              </div>
+            ) : (
+              cart.map((item) => {
+                const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
+                const sq = saleQty(item);
+                const ex = item.excludedQuantity;
+                const saleLine = price * sq;
+                const exLine = price * ex;
+                return (
+                  <div
+                    key={item.product.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openExcludeDialog(item.product.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openExcludeDialog(item.product.id);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 rounded-xl p-2 border-2 transition-colors cursor-pointer select-none",
+                      ex === 0 ? "bg-muted/50 border-transparent" : "bg-destructive/8 border-destructive/50",
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={cn(
+                          "text-sm font-semibold truncate",
+                          ex > 0 && "text-destructive/95",
+                        )}
+                      >
+                        {item.product.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {tx("In cart", "في السلة")}: {item.quantity} · {tx("For sale", "للبيع")}: {sq}
+                        {ex > 0 ? ` · ${tx("Excluded", "مستبعد")}: ${ex}` : ""}
+                      </p>
+                      <p className="text-xs mt-0.5">
+                        <span className="text-foreground font-medium">
+                          {tx("Sale", "بيع")}: {formatMoney(price)} × {sq} = {formatMoney(saleLine)}
+                        </span>
+                        {ex > 0 && (
+                          <span className="text-destructive font-semibold ms-2">
+                            {tx("Excluded", "مستبعد")}: {formatMoney(exLine)}
+                          </span>
+                        )}
+                      </p>
+                      {ex > 0 && (
+                        <p className="text-[10px] font-bold text-destructive mt-0.5">
+                          {tx("Tap to change excluded quantity", "اضغط لتغيير كمية المستبعد")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 rounded-lg bg-muted/80 px-2.5 py-1.5 min-w-[2.5rem] text-center">
+                      <span className="text-xs text-muted-foreground block leading-none">{tx("Qty", "الكمية")}</span>
+                      <span className="text-base font-bold tabular-nums">{item.quantity}</span>
+                    </div>
                   </div>
-                )}
-                <span className="text-xs font-bold text-foreground text-center leading-tight line-clamp-2 min-h-[32px]">{product.name}</span>
-                <span className="text-xs font-semibold text-primary">{formatMoney(price)}</span>
-                {saleType === "wholesale" && (
-                  <span className="text-[10px] text-muted-foreground font-semibold">
-                    {tx("Min", "الحد الأدنى")}: {product.wholesale_min_qty}
-                  </span>
-                )}
-                {outOfStock && <span className="text-[10px] text-destructive font-bold">Out</span>}
-                {!outOfStock && wholesaleStockBelowMin && (
-                  <span className="text-[10px] text-destructive font-bold">
-                    {tx("Below wholesale minimum stock", "أقل من حد الجملة")}
-                  </span>
-                )}
-                {!outOfStock && notAvailableForSaleType && (
-                  <span className="text-[10px] text-muted-foreground font-bold">
-                    {saleType === "retail" ? tx("Wholesale only", "جملة فقط") : tx("Retail only", "مفرق فقط")}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-full text-center text-muted-foreground py-12">
-              {tx("No products", "لا توجد منتجات")}
+                );
+              })
+            )}
+          </div>
+
+          {cart.length > 0 && includedLines.length > 0 && (
+            <div className="px-3 pt-2 pb-2 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl border-destructive/50 text-destructive hover:bg-destructive/10"
+                onClick={() => setFullReturnConfirmOpen(true)}
+              >
+                {tx("Full return — exclude all lines", "إرجاع كامل — استبعاد كل الأسطر")}
+              </Button>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Cart */}
-      <div className="w-full lg:w-80 xl:w-96 glass-card rounded-2xl flex flex-col lg:max-h-[calc(100vh-7rem)]">
-        <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap">
-          <ShoppingBasket className="w-5 h-5 text-primary shrink-0" />
-          <h2 className="font-bold text-lg">{tx("Cart", "السلة")}</h2>
-          <span className="text-sm text-muted-foreground ms-auto">
-            {includedLines.length}/{cart.length} {tx("active / lines", "مفعّل / أسطر")}
-          </span>
-        </div>
-        {cart.length > 0 && (
-          <p className="px-4 pb-2 text-[11px] text-muted-foreground leading-snug -mt-2">
-            {tx(
-              "Tap product on the grid to add quantity. Tap a cart row to set how many units to exclude from the sale (logged on complete).",
-              "اضغط المنتج في الشبكة لزيادة الكمية. اضغط سطراً في السلة لتحديد كم وحدة تُستبعد من البيع (يُسجّل عند الإتمام).",
-            )}
+        <div className="mt-2 shrink-0 rounded-2xl border border-border/80 bg-muted/30 px-3 py-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            {tx("Quick tiles (preview only)", "بلاطات سريعة (معاينة فقط)")}
           </p>
-        )}
-
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {cart.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12 text-sm">{tx("Cart is empty", "السلة فارغة")}</div>
-          ) : (
-            cart.map((item) => {
-              const price = saleType === "retail" ? item.product.retail_price : item.product.wholesale_price;
-              const sq = saleQty(item);
-              const ex = item.excludedQuantity;
-              const saleLine = price * sq;
-              const exLine = price * ex;
-              return (
-                <div
-                  key={item.product.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openExcludeDialog(item.product.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openExcludeDialog(item.product.id);
-                    }
-                  }}
+          <div className="grid grid-cols-4 gap-2">
+            {(
+              [
+                { kind: "lookup" as const, n: 1, en: "Item lookup", ar: "بحث عن صنف" },
+                { kind: "soon" as const, n: 2, en: "Offers", ar: "العروض" },
+                { kind: "soon" as const, n: 3, en: "Drinks", ar: "مشروبات" },
+                { kind: "soon" as const, n: 4, en: "Snacks", ar: "سناكات" },
+              ] as const
+            ).map((tile) =>
+              tile.kind === "lookup" ? (
+                <Button
+                  key={tile.n}
+                  type="button"
+                  variant="outline"
                   className={cn(
-                    "flex items-center gap-2 rounded-xl p-2 border-2 transition-colors cursor-pointer select-none",
-                    ex === 0 ? "bg-muted/50 border-transparent" : "bg-destructive/8 border-destructive/50",
+                    "relative min-w-0 h-auto min-h-[4.5rem] px-1.5 py-2 flex flex-col items-center justify-center gap-0.5 rounded-xl border border-border/80",
+                    "bg-gradient-to-br from-card to-muted/80 shadow-sm ring-1 ring-black/5 dark:ring-white/10 hover:bg-muted/90",
+                  )}
+                  onClick={() => setItemLookupOpen(true)}
+                >
+                  <Search className="w-4 h-4 text-primary shrink-0" />
+                  <span className="text-[11px] sm:text-xs font-bold text-foreground leading-tight line-clamp-2">
+                    {tx(tile.en, tile.ar)}
+                  </span>
+                  <span className="text-[9px] font-medium text-muted-foreground leading-none">
+                    {tx("Price check", "استعلام سعر")}
+                  </span>
+                </Button>
+              ) : (
+                <div
+                  key={tile.n}
+                  role="presentation"
+                  className={cn(
+                    "relative min-w-0 overflow-hidden rounded-xl border border-border/80 bg-gradient-to-br from-card to-muted/80",
+                    "min-h-[4.5rem] px-1.5 py-2 flex flex-col items-center justify-center gap-0.5 text-center shadow-sm",
+                    "ring-1 ring-black/5 dark:ring-white/10",
                   )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={cn(
-                        "text-sm font-semibold truncate",
-                        ex > 0 && "text-destructive/95",
-                      )}
-                    >
-                      {item.product.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {tx("In cart", "في السلة")}: {item.quantity} · {tx("For sale", "للبيع")}: {sq}
-                      {ex > 0 ? ` · ${tx("Excluded", "مستبعد")}: ${ex}` : ""}
-                    </p>
-                    <p className="text-xs mt-0.5">
-                      <span className="text-foreground font-medium">
-                        {tx("Sale", "بيع")}: {formatMoney(price)} × {sq} = {formatMoney(saleLine)}
-                      </span>
-                      {ex > 0 && (
-                        <span className="text-destructive font-semibold ms-2">
-                          {tx("Excluded", "مستبعد")}: {formatMoney(exLine)}
-                        </span>
-                      )}
-                    </p>
-                    {ex > 0 && (
-                      <p className="text-[10px] font-bold text-destructive mt-0.5">
-                        {tx("Tap to change excluded quantity", "اضغط لتغيير كمية المستبعد")}
-                      </p>
-                    )}
-                  </div>
-                  <div className="shrink-0 rounded-lg bg-muted/80 px-2.5 py-1.5 min-w-[2.5rem] text-center">
-                    <span className="text-xs text-muted-foreground block leading-none">{tx("Qty", "الكمية")}</span>
-                    <span className="text-base font-bold tabular-nums">{item.quantity}</span>
-                  </div>
+                  <Sparkles className="w-4 h-4 text-primary/70 shrink-0" />
+                  <span className="text-[11px] sm:text-xs font-bold text-foreground leading-tight line-clamp-2">
+                    {tx(tile.en, tile.ar)}
+                  </span>
+                  <span className="text-[9px] font-medium text-muted-foreground leading-none">
+                    {tx("Coming soon", "قريباً")}
+                  </span>
                 </div>
-              );
-            })
-          )}
-        </div>
-
-        {cart.length > 0 && includedLines.length > 0 && (
-          <div className="px-3 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full rounded-xl border-destructive/50 text-destructive hover:bg-destructive/10"
-              onClick={() => setFullReturnConfirmOpen(true)}
-            >
-              {tx("Full return — exclude all lines", "إرجاع كامل — استبعاد كل الأسطر")}
-            </Button>
+              ),
+            )}
           </div>
-        )}
+        </div>
+      </div>
 
-        <div className="p-4 border-t border-border space-y-3">
+      {/* Side strip: payment only */}
+      <aside className="w-full lg:w-80 xl:w-96 shrink-0 glass-card rounded-2xl flex flex-col lg:max-h-[calc(100vh-7rem)] border border-border/60">
+        <div className="p-4 border-b border-border shrink-0">
+          <h2 className="font-bold text-lg">{tx("Payment", "الدفع")}</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            {tx("Totals, tender, and complete sale", "المجموع، التحصيل، وإتمام البيع")}
+          </p>
+        </div>
+        <div className="p-4 space-y-3 flex-1 overflow-y-auto min-h-0">
           <div className="flex justify-between text-lg font-bold gap-2">
             <span>{tx("Amount due", "المطلوب")}</span>
             <div className="text-end min-w-0">
@@ -739,70 +783,70 @@ export default function POS() {
                 {isCredit ? tx("Credit Sale Active", "البيع بالدين مفعّل") : tx("Mark as Credit Sale", "تسجيلها كبيع دين")}
               </Button>
               {isCredit && (
-              <div className="space-y-2">
-                <select
-                  value={selectedCustomerId}
-                  onChange={(e) => {
-                    setSelectedCustomerId(e.target.value);
-                    const chosen = customers.find((c) => c.id === e.target.value);
-                    setCustomerName(chosen?.name ?? "");
-                  }}
-                  className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">{tx("Choose customer for credit", "اختر زبون الدين")}</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.phone ? `(${c.phone})` : ""}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full rounded-xl"
-                  onClick={() => setShowAddCustomer((prev) => !prev)}
-                >
-                  {showAddCustomer ? tx("Cancel add customer", "إلغاء إضافة زبون") : tx("Add new customer", "إضافة زبون جديد")}
-                </Button>
-                {showAddCustomer && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <Input
-                      placeholder={tx("Customer name", "اسم الزبون")}
-                      value={newCustomerName}
-                      onChange={(e) => setNewCustomerName(e.target.value)}
-                      className="rounded-xl"
-                    />
-                    <Input
-                      placeholder={tx("Customer phone", "رقم الهاتف")}
-                      value={newCustomerPhone}
-                      onChange={(e) => setNewCustomerPhone(e.target.value)}
-                      className="rounded-xl"
-                      dir="ltr"
-                    />
-                    <Button
-                      type="button"
-                      className="sm:col-span-2 rounded-xl"
-                      onClick={() => {
-                        if (!newCustomerName.trim() || !newCustomerPhone.trim()) {
-                          toast({ title: tx("Enter customer name and phone", "أدخل اسم الزبون ورقم الهاتف"), variant: "destructive" });
-                          return;
-                        }
-                        const created = addCustomer(newCustomerName.trim(), newCustomerPhone.trim());
-                        if (created) {
-                          setSelectedCustomerId(created.id);
-                          setCustomerName(created.name);
-                        }
-                        setShowAddCustomer(false);
-                        setNewCustomerName("");
-                        setNewCustomerPhone("");
-                        toast({ title: tx("Customer saved ✓", "تم حفظ الزبون ✓") });
-                      }}
-                    >
-                      {tx("Save customer", "حفظ الزبون")}
-                    </Button>
-                  </div>
-                )}
-              </div>
+                <div className="space-y-2">
+                  <select
+                    value={selectedCustomerId}
+                    onChange={(e) => {
+                      setSelectedCustomerId(e.target.value);
+                      const chosen = customers.find((c) => c.id === e.target.value);
+                      setCustomerName(chosen?.name ?? "");
+                    }}
+                    className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">{tx("Choose customer for credit", "اختر زبون الدين")}</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.phone ? `(${c.phone})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full rounded-xl"
+                    onClick={() => setShowAddCustomer((prev) => !prev)}
+                  >
+                    {showAddCustomer ? tx("Cancel add customer", "إلغاء إضافة زبون") : tx("Add new customer", "إضافة زبون جديد")}
+                  </Button>
+                  {showAddCustomer && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Input
+                        placeholder={tx("Customer name", "اسم الزبون")}
+                        value={newCustomerName}
+                        onChange={(e) => setNewCustomerName(e.target.value)}
+                        className="rounded-xl"
+                      />
+                      <Input
+                        placeholder={tx("Customer phone", "رقم الهاتف")}
+                        value={newCustomerPhone}
+                        onChange={(e) => setNewCustomerPhone(e.target.value)}
+                        className="rounded-xl"
+                        dir="ltr"
+                      />
+                      <Button
+                        type="button"
+                        className="sm:col-span-2 rounded-xl"
+                        onClick={() => {
+                          if (!newCustomerName.trim() || !newCustomerPhone.trim()) {
+                            toast({ title: tx("Enter customer name and phone", "أدخل اسم الزبون ورقم الهاتف"), variant: "destructive" });
+                            return;
+                          }
+                          const created = addCustomer(newCustomerName.trim(), newCustomerPhone.trim());
+                          if (created) {
+                            setSelectedCustomerId(created.id);
+                            setCustomerName(created.name);
+                          }
+                          setShowAddCustomer(false);
+                          setNewCustomerName("");
+                          setNewCustomerPhone("");
+                          toast({ title: tx("Customer saved ✓", "تم حفظ الزبون ✓") });
+                        }}
+                      >
+                        {tx("Save customer", "حفظ الزبون")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -984,7 +1028,7 @@ export default function POS() {
                 && paymentMethod === "cash"
                 && paidInShopCurrency + 1e-6 < total)
             }
-            className="w-full h-12 rounded-xl text-lg font-bold"
+            className="w-full h-12 rounded-xl text-lg font-bold shrink-0"
           >
             {processing
               ? tx("Processing...", "جاري المعالجة...")
@@ -995,7 +1039,226 @@ export default function POS() {
                   : tx("Complete Sale", "إتمام البيع")}
           </Button>
         </div>
-      </div>
+      </aside>
+
+      <Dialog open={productsPickerOpen} onOpenChange={setProductsPickerOpen}>
+        <DialogContent
+          className="max-w-4xl w-[calc(100vw-1.5rem)] sm:w-full max-h-[min(90vh,52rem)] flex flex-col p-0 gap-0 overflow-hidden"
+          dir={isArabic ? "rtl" : "ltr"}
+        >
+          <DialogHeader className="p-6 pb-4 border-b border-border shrink-0 space-y-1">
+            <DialogTitle className="text-xl">{tx("Browse products", "اختيار المنتجات")}</DialogTitle>
+            <p className="text-sm text-muted-foreground font-normal">
+              {tx("Search and tap a product to add it to the cart.", "ابحث واضغط منتجاً لإضافته للسلة.")}
+            </p>
+          </DialogHeader>
+          <div className="px-6 pt-4 shrink-0">
+            <div className="relative">
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder={tx("Search product...", "بحث عن منتج...")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="ps-10 rounded-xl h-11"
+              />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 content-start [grid-auto-rows:1fr]">
+              {filteredProducts.map((product) => {
+                const outOfStock = product.stock <= 0;
+                const notAvailableForSaleType = saleType === "retail" ? !product.sell_retail : !product.sell_wholesale;
+                const wholesaleStockBelowMin =
+                  saleType === "wholesale" && product.stock < Math.max(1, product.wholesale_min_qty || 1);
+                const isDisabled = outOfStock || notAvailableForSaleType || wholesaleStockBelowMin;
+                const lowStock = product.stock > 0 && product.stock <= product.min_stock;
+                const price = saleType === "retail" ? product.retail_price : product.wholesale_price;
+                const inCart = cart.find((i) => i.product.id === product.id);
+                const inCartSaleQty = inCart ? saleQty(inCart) : 0;
+
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => {
+                      if (!isDisabled) {
+                        addToCart(product);
+                      }
+                    }}
+                    className={cn(
+                      "pos-btn relative",
+                      isDisabled && "pos-btn-disabled",
+                      inCartSaleQty > 0 && "pos-btn-active",
+                    )}
+                    disabled={isDisabled}
+                  >
+                    {lowStock && (
+                      <AlertTriangle className="absolute top-1 start-1 w-3.5 h-3.5 text-warning" />
+                    )}
+                    {inCart && inCart.quantity > 0 && (
+                      <span className="absolute top-1 end-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs flex items-center justify-center font-bold bg-primary text-primary-foreground">
+                        {inCart.quantity}
+                      </span>
+                    )}
+                    {product.image_url && (
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="w-full h-20 rounded-lg object-cover border border-border/40"
+                      />
+                    )}
+                    {!product.image_url && (
+                      <div className="w-full h-20 rounded-lg border border-dashed border-border/70 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground">
+                        {tx("No image", "بدون صورة")}
+                      </div>
+                    )}
+                    <span className="text-xs font-bold text-foreground text-center leading-tight line-clamp-2 min-h-[32px]">{product.name}</span>
+                    <span className="text-xs font-semibold text-primary">{formatMoney(price)}</span>
+                    {saleType === "wholesale" && (
+                      <span className="text-[10px] text-muted-foreground font-semibold">
+                        {tx("Min", "الحد الأدنى")}: {product.wholesale_min_qty}
+                      </span>
+                    )}
+                    {outOfStock && <span className="text-[10px] text-destructive font-bold">Out</span>}
+                    {!outOfStock && wholesaleStockBelowMin && (
+                      <span className="text-[10px] text-destructive font-bold">
+                        {tx("Below wholesale minimum stock", "أقل من حد الجملة")}
+                      </span>
+                    )}
+                    {!outOfStock && notAvailableForSaleType && (
+                      <span className="text-[10px] text-muted-foreground font-bold">
+                        {saleType === "retail" ? tx("Wholesale only", "جملة فقط") : tx("Retail only", "مفرق فقط")}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {filteredProducts.length === 0 && (
+                <div className="col-span-full text-center text-muted-foreground py-12">
+                  {tx("No products", "لا توجد منتجات")}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="p-4 border-t border-border sm:justify-center shrink-0">
+            <Button type="button" variant="outline" className="rounded-xl min-w-[8rem]" onClick={() => setProductsPickerOpen(false)}>
+              {tx("Close", "إغلاق")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={itemLookupOpen}
+        onOpenChange={(open) => {
+          setItemLookupOpen(open);
+          if (!open) setLookupSearch("");
+        }}
+      >
+        <DialogContent
+          className="max-w-xl w-[calc(100vw-1.5rem)] max-h-[min(92vh,44rem)] flex flex-col gap-0 overflow-hidden p-0"
+          dir={isArabic ? "rtl" : "ltr"}
+        >
+          <DialogHeader className="p-5 pb-3 border-b border-border shrink-0 space-y-2 text-start">
+            <DialogTitle className="text-lg leading-snug">
+              {tx("Item lookup — customer question", "استعلام عن صنف — سؤال من الزبون")}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground font-normal leading-relaxed">
+              {tx(
+                "Show category, details, and prices. Ask the customer to place the item on the scanner when it is ready; until then, use search below.",
+                "اعرض التصنيف والتفاصيل والأسعار. اطلب من الزبون وضع الصنف على جهاز المسح عند الجاهزية؛ إلى ذلك الحين استخدم البحث أدناه.",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-5 pt-3 shrink-0">
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
+              <p className="font-semibold text-foreground">
+                {tx("Place the item on the device", "ضع الصنف على الجهاز")}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {tx("(Scanner link coming later — list is available now.)", "(ربط السكنر لاحقاً — القائمة متوفرة الآن.)")}
+              </p>
+            </div>
+            <div className="relative mt-3">
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder={tx("Search products by name…", "ابحث في المنتجات بالاسم…")}
+                value={lookupSearch}
+                onChange={(e) => setLookupSearch(e.target.value)}
+                className="ps-10 h-10 rounded-xl"
+              />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-2 [scrollbar-gutter:stable]">
+            {lookupFilteredProducts.length === 0 ? (
+              <p className="text-center text-sm text-muted-foreground py-10">
+                {tx("No matching products.", "لا يوجد منتجات مطابقة.")}
+              </p>
+            ) : (
+              lookupFilteredProducts.map((product) => {
+                const cat =
+                  product.category_id && categoryNameById.has(product.category_id)
+                    ? categoryNameById.get(product.category_id)!
+                    : tx("No category", "بدون تصنيف");
+                const saleModes = [
+                  product.sell_retail ? tx("Retail", "مفرق") : null,
+                  product.sell_wholesale ? tx("Wholesale", "جملة") : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <div
+                    key={product.id}
+                    className="flex gap-3 rounded-xl border border-border/80 bg-card p-3 shadow-sm"
+                  >
+                    <div className="shrink-0 w-14 h-14 rounded-lg border border-border/50 bg-muted/40 overflow-hidden">
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-muted-foreground px-0.5 text-center leading-tight">
+                          {tx("No image", "بدون صورة")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 text-start">
+                      <p className="font-semibold text-sm leading-tight">{product.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        <span className="font-medium text-foreground/80">{tx("Category", "التصنيف")}:</span>{" "}
+                        {cat}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                        <span className="font-medium text-foreground/80">{tx("Details", "مواصفات")}:</span>{" "}
+                        {tx("Stock", "المخزون")} {product.stock} · {tx("Min. stock", "حد أدنى مخزون")}{" "}
+                        {product.min_stock} · {tx("Wholesale min. qty", "حد أدنى جملة")} {product.wholesale_min_qty}
+                        {saleModes ? ` · ${tx("Sale modes", "أنماط البيع")}: ${saleModes}` : ""}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                        <span>
+                          <span className="text-muted-foreground text-xs">{tx("Retail price", "سعر المفرق")}: </span>
+                          <span className="font-bold text-primary tabular-nums">{formatMoney(product.retail_price)}</span>
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground text-xs">{tx("Wholesale price", "سعر الجملة")}: </span>
+                          <span className="font-bold text-primary tabular-nums">{formatMoney(product.wholesale_price)}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t border-border shrink-0 sm:justify-center">
+            <Button type="button" variant="outline" className="rounded-xl min-w-[8rem]" onClick={() => setItemLookupOpen(false)}>
+              {tx("Close", "إغلاق")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(excludeDialogProductId)}

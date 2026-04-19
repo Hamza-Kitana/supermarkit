@@ -10,6 +10,7 @@ import {
   getInvoiceItems,
   getInvoiceReturnSummary,
   invoiceDisplayGrossTotal,
+  invoiceDisplayPaid,
   parseCartFullDisplay,
   removeInvoice,
   type LocalInvoiceItem,
@@ -480,7 +481,7 @@ export default function Invoices() {
                       )}
                     </td>
                     <td className="p-3 font-bold">{formatMoney(invoiceDisplayGrossTotal(inv))}</td>
-                    <td className="p-3">{formatMoney(inv.paid)}</td>
+                    <td className="p-3">{formatMoney(invoiceDisplayPaid(inv))}</td>
                     <td className="p-3">{formatMoney(inv.change_amount)}</td>
                     <td className="p-3">
                       {(inv.returned_amount ?? 0) > 0 && !inv.is_return ? (
@@ -590,7 +591,15 @@ export default function Invoices() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Paid Amount", "المبلغ المدفوع")}</p>
-                  <p className="font-bold">{formatMoney(selectedInvoice.paid)}</p>
+                  <p className="font-bold">{formatMoney(invoiceDisplayPaid(selectedInvoice))}</p>
+                  {(selectedInvoice.returned_amount ?? 0) > 0 && !selectedInvoice.is_credit && (
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                      {tx(
+                        "Full tender at checkout (not reduced when items are returned).",
+                        "المبلغ المستلم عند البيع كاملاً (لا ينقص عند مرتجع أصناف).",
+                      )}
+                    </p>
+                  )}
                 </div>
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-muted-foreground">{tx("Change To Customer", "الباقي للزبون")}</p>

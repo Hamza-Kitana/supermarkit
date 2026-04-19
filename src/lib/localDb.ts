@@ -99,6 +99,16 @@ export function invoiceDisplayGrossTotal(inv: LocalInvoice): number {
   return snap?.grossTotal ?? inv.total;
 }
 
+/**
+ * "Paid" on invoices (non-credit): cash/card tender at checkout = `total + change_amount`.
+ * Partial returns change `returned_amount` only; they do not reduce this tender on the receipt.
+ * Credit: cumulative payments recorded on the invoice (`paid`).
+ */
+export function invoiceDisplayPaid(inv: LocalInvoice): number {
+  if (inv.is_credit) return Math.max(0, inv.paid);
+  return Math.max(0, inv.total + inv.change_amount);
+}
+
 export interface LocalInvoiceItem {
   id: string;
   invoice_id: string;

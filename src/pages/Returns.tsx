@@ -15,7 +15,14 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, Package, Printer, ShoppingCart } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ChevronDown, Eye, Package, Printer, ShoppingCart } from "lucide-react";
 
 function safeFormat(iso: string | null | undefined, pattern: string) {
   if (!iso) return "—";
@@ -46,6 +53,7 @@ export default function Returns() {
   const [invoices, setInvoices] = useState<LocalInvoice[]>(() => getInvoicesWithReturns());
   const [cartExclusions, setCartExclusions] = useState<LocalPosCartExclusion[]>(() => getPosCartExclusions());
   const [openId, setOpenId] = useState<string | null>(null);
+  const [viewInvoiceId, setViewInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -295,14 +303,47 @@ export default function Returns() {
             const net = Math.max(0, inv.total - returned);
             const lines = allItemsByInvoice.get(inv.id) ?? [];
             const expanded = openId === inv.id;
+            const openInvoiceDialog = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setViewInvoiceId(inv.id);
+            };
             const fullReturn = inv.is_return || net <= 0.0001;
             const statusLabel = fullReturn
               ? tx("Fully returned", "مرتجع كامل")
               : tx("Partially returned", "مرتجع جزئي");
 
             return (
-              <li key={inv.id} className="glass-card rounded-2xl border border-border/60 overflow-hidden">
-                <div className="flex w-full items-stretch">
+              <li key={inv.id} className="glass-card relative rounded-2xl border border-border/60 overflow-hidden">
+                {/* Fixed corner — avoids being clipped by parent overflow-x-hidden (main layout) */}
+                <div className="pointer-events-auto absolute top-3 end-3 z-20 flex flex-row gap-1">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 border border-primary/30 bg-card shadow-sm text-primary hover:bg-primary/10"
+                    onClick={openInvoiceDialog}
+                    title={tx("View full invoice", "عرض الفاتورة كاملة")}
+                    aria-label={tx("View full invoice", "عرض الفاتورة كاملة")}
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 border border-border bg-card shadow-sm hover:bg-muted"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      printInvoiceReturn(inv, lines);
+                    }}
+                    title={tx("Print this invoice return", "طباعة إرجاع هذه الفاتورة")}
+                    aria-label={tx("Print", "طباعة")}
+                  >
+                    <Printer className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex w-full items-stretch pe-[5.75rem]">
                   <button
                     type="button"
                     className="flex-1 min-w-0 flex items-start gap-3 p-4 text-start hover:bg-muted/40 transition-colors"
@@ -354,17 +395,6 @@ export default function Returns() {
                       </p>
                     </div>
                   </button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0 m-2 self-start"
-                    onClick={() => printInvoiceReturn(inv, lines)}
-                    title={tx("Print this invoice return", "طباعة إرجاع هذه الفاتورة")}
-                    aria-label={tx("Print", "طباعة")}
-                  >
-                    <Printer className="h-4 w-4" />
-                  </Button>
                 </div>
 
                 {expanded && (
@@ -456,6 +486,148 @@ export default function Returns() {
           "يُسجّل استبعاد السلة عند تعطيل سطر (أحمر) في نقطة البيع. إرجاع الفاتورة يأتي من نافذة الإرجاع بعد البيع.",
         )}
       </p>
+
+      <InvoiceReturnDetailDialog
+        open={Boolean(viewInvoiceId)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setViewInvoiceId(null);
+        }}
+        invoiceId={viewInvoiceId}
+        invoices={invoices}
+        linesByInvoice={allItemsByInvoice}
+        formatMoney={formatMoney}
+        tx={tx}
+        isArabic={isArabic}
+        safeFormat={safeFormat}
+      />
     </div>
+  );
+}
+
+function InvoiceReturnDetailDialog({
+  open,
+  onOpenChange,
+  invoiceId,
+  invoices,
+  linesByInvoice,
+  formatMoney,
+  tx,
+  isArabic,
+  safeFormat,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  invoiceId: string | null;
+  invoices: LocalInvoice[];
+  linesByInvoice: Map<string, LocalInvoiceItem[]>;
+  formatMoney: (n: number) => string;
+  tx: (en: string, ar: string) => string;
+  isArabic: boolean;
+  safeFormat: (iso: string | null | undefined, pattern: string) => string;
+}) {
+  const inv = invoiceId ? invoices.find((i) => i.id === invoiceId) ?? null : null;
+  const lines = invoiceId ? (linesByInvoice.get(invoiceId) ?? []) : [];
+  const returned = inv ? (inv.returned_amount ?? 0) : 0;
+  const net = inv ? Math.max(0, inv.total - returned) : 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-w-2xl max-h-[min(90vh,36rem)] flex flex-col gap-0 overflow-hidden p-0"
+        dir={isArabic ? "rtl" : "ltr"}
+      >
+        {inv && (
+          <>
+            <DialogHeader className="p-5 pb-3 border-b border-border shrink-0 space-y-1 text-start">
+              <DialogTitle className="text-lg">{tx("Full invoice", "الفاتورة كاملة")}</DialogTitle>
+              <p className="text-xs text-muted-foreground font-mono" dir="ltr">
+                {inv.id}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {safeFormat(inv.created_at, "yyyy-MM-dd HH:mm")} · {inv.cashier_name}
+              </p>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3">
+              <div className="rounded-xl border border-border/60 overflow-hidden bg-card/30">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/30 border-b border-border/60">
+                      <th className="text-start p-2 font-semibold">{tx("Product", "المنتج")}</th>
+                      <th className="text-start p-2 font-semibold whitespace-nowrap">
+                        {tx("Qty (sold)", "الكمية (مباعة)")}
+                      </th>
+                      <th className="text-start p-2 font-semibold whitespace-nowrap">{tx("Unit price", "سعر الوحدة")}</th>
+                      <th className="text-start p-2 font-semibold whitespace-nowrap">{tx("Line total", "مجموع السطر")}</th>
+                      <th className="text-start p-2 font-semibold whitespace-nowrap">{tx("Returned", "مرتجع")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-muted-foreground text-sm">
+                          {tx("(Line details unavailable)", "(تفاصيل البنود غير متوفرة)")}
+                        </td>
+                      </tr>
+                    ) : (
+                      lines.map((item) => {
+                        const rq = item.returned_quantity ?? 0;
+                        const retVal = rq * item.unit_price;
+                        return (
+                          <tr
+                            key={item.id}
+                            className={cn(
+                              "border-b border-border/40 last:border-b-0",
+                              rq > 0 && "bg-destructive/5",
+                            )}
+                          >
+                            <td className="p-2 font-medium align-top">{item.product_name}</td>
+                            <td className="p-2 align-top">{item.quantity}</td>
+                            <td className="p-2 align-top tabular-nums">{formatMoney(item.unit_price)}</td>
+                            <td className="p-2 font-semibold align-top tabular-nums">{formatMoney(item.subtotal)}</td>
+                            <td className="p-2 align-top">
+                              {rq > 0 ? (
+                                <span className="text-destructive font-medium tabular-nums">
+                                  {rq} ({formatMoney(retVal)})
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-border bg-muted/25 p-4 space-y-3 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">{tx("Original invoice total", "إجمالي الفاتورة الأصلي")}</span>
+                  <span className="font-bold tabular-nums">{formatMoney(inv.total)}</span>
+                </div>
+                <div className="flex justify-between gap-4 text-destructive">
+                  <span className="font-medium">
+                    {tx("Deducted — returned items total", "المخصوم — مجموع الأصناف المرتجعة")}
+                  </span>
+                  <span className="font-bold tabular-nums">{formatMoney(returned)}</span>
+                </div>
+                <div className="border-t border-border pt-3 flex justify-between gap-4 text-base">
+                  <span className="font-semibold">
+                    {tx("Total without returned items (net)", "المجموع بدون الأصناف المرتجعة (الصافي)")}
+                  </span>
+                  <span className="font-bold text-primary tabular-nums">{formatMoney(net)}</span>
+                </div>
+              </div>
+            </div>
+            <DialogFooter className="p-4 border-t border-border shrink-0 sm:justify-center">
+              <Button type="button" variant="outline" className="rounded-xl min-w-[8rem]" onClick={() => onOpenChange(false)}>
+                {tx("Close", "إغلاق")}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
